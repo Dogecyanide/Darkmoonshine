@@ -14,7 +14,7 @@ unmodified.
 The overlay rows are:
 
 ```text
-LM STATE X0.3.23 F:<floor> C:<canary> H:<heap check> X<cross-room guard>
+LM STATE X0.3.24 F:<floor> C:<canary> H:<heap check> X<cross-room guard>
 S:<state status> ST<stable frames> SZ<snapshot KiB> G:<gate> <gate value>
 E:<first epoch field> M<mismatch mask> <saved value>><live value>
 V:<topology> S<saved count>>L<live count> -<removed> +<added> F<save>/<live fault>
@@ -245,6 +245,24 @@ at `0x154A0`, and the aligned game-heap payload begins at `0x157A0`. Snapshot
 format version 12 prevents an older MEM2 slot from being mistaken for this
 layout.
 
+Version `0.3.24` advances the snapshot to format 13 and captures the
+pointer-free active-event bitmap at `803C20C8-803C2138`. LM's heap event
+objects and their mounted event archives already rewind, but this 112-byte
+fixed map previously remained in the destination room. That split can make a
+saved foyer event appear active and start its cutscene before Luigi reaches
+the door. The static payload is now `0x153C8` bytes, the camera-object sidecar
+begins at `0x15510`, and the aligned game-heap payload begins at `0x15820`.
+
+This build also closes an I/O race without snapshotting any SDK object. LM
+decrements its public DVD outstanding count before the primary worker runs its
+internal and user callbacks. Save and load now require both original DVD
+workers to be waiting on structurally valid empty message queues, and repeat
+that proof after the scheduler is frozen. On an accepted cross-room restore,
+completed-request buffer/archive/callback pointers are cleared from the 64
+transport records and their circular cursor is reset coherently. DVD command
+blocks, per-request message queues, worker threads, stacks, queues, and the
+secondary worker callback remain live and are never copied or reconstructed.
+
 Same-room loads still require an exact epoch match. The experimental
 cross-room exception requires the epoch mismatch mask to be exactly
 `M00000180`: only mounted-volume count and head may differ; the list tail and
@@ -271,11 +289,14 @@ The invocation containing the load can only emit `97` because tracing was not
 armed at its entry. A final `97` isolates the following scene-table virtual
 call.
 
-For the `0.3.23` hardware pass, first make a new version-12 state. Confirm one
+For the `0.3.24` hardware pass, first make a new version-13 state. Confirm one
 same-room restore, then use this exact cross-room sequence: save outside the
 intended foyer door, enter it and wait until Luigi is controllable, load back
 outside, then touch that same door again. Report separately whether the second
-door animation and the following room load complete. Detailed tracing covers
+door animation and the following room load complete, and whether the foyer
+cutscene still starts early. `G:DVD1` or `G:DVD2` is a deliberate refusal
+because a DVD worker was not fully quiescent; wait a moment and try again.
+Detailed tracing covers
 the first eight restored presentations. It then becomes a low-rate two-minute
 tail; an A-button edge just before `MAIN GAME` update opens a 240-presentation
 watch and enables the existing `E0/E1` wrappers for the initiating update.

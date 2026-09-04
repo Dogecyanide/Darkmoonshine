@@ -73,7 +73,30 @@ constexpr u32 kResourceSlotCountGlobal = 0x804A0D10u;
 constexpr u32 kResourceSlotSizeGlobal = 0x804A0D14u;
 constexpr u32 kResourceWantedCountGlobal = 0x804A0D18u;
 constexpr u32 kPadStatusGlobal = 0x80494778u;
-constexpr u32 kDvdOutstandingGlobal = 0x80391D98u;
+// LM's two DVD workers live outside the gameplay heap.  The public outstanding
+// counter reaches zero before the primary worker finishes its callbacks, so a
+// save/load gate must prove both workers are actually asleep on empty queues.
+constexpr u32 kDvdFileInfoArray = 0x8038FB98u;
+constexpr u32 kDvdFileInfoCount = 64u;
+constexpr u32 kDvdFileInfoSize = 0x88u;
+constexpr u32 kDvdCurrentGlobal = 0x80391D98u;
+constexpr u32 kDvdOutstandingGlobal = kDvdCurrentGlobal;
+constexpr u32 kDvdPrimaryThread = 0x80393DC0u;
+constexpr u32 kDvdPrimaryThreadState = 0x80394088u;
+constexpr u32 kDvdPrimaryThreadSuspend = 0x8039408Cu;
+constexpr u32 kDvdPrimaryThreadQueue = 0x8039409Cu;
+constexpr u32 kDvdPrimaryQueue = 0x803940D0u;
+constexpr u32 kDvdPrimaryMessages = 0x803940F0u;
+constexpr u32 kDvdPrimaryCursor = 0x803941F0u;
+constexpr u32 kDvdSecondaryThread = 0x80398200u;
+constexpr u32 kDvdSecondaryThreadState = 0x803984C8u;
+constexpr u32 kDvdSecondaryThreadSuspend = 0x803984CCu;
+constexpr u32 kDvdSecondaryThreadQueue = 0x803984DCu;
+constexpr u32 kDvdSecondaryRequestQueue = 0x80398510u;
+constexpr u32 kDvdSecondaryRequestMessage = 0x80398530u;
+constexpr u32 kDvdSecondaryCompletionQueue = 0x80398534u;
+constexpr u32 kDvdSecondaryCompletionMessage = 0x80398554u;
+constexpr u16 kOsThreadWaiting = 4u;
 constexpr u32 kAramList0Global = 0x804946F4u;
 constexpr u32 kAramList1Global = 0x80494724u;
 constexpr u32 kCardBlockGlobal = 0x80495960u;
@@ -108,7 +131,7 @@ constexpr u32 kMem1End = 0x81800000u;
 constexpr u32 kSnapshotBase = SUSAMUNE_MEM2_SNAPSHOT_PPC_BASE;
 constexpr u32 kSnapshotCapacity = SUSAMUNE_MEM2_SNAPSHOT_SIZE;
 constexpr u32 kSnapshotMagic = 0x4C4D5354u;  // 'LMST'
-constexpr u32 kSnapshotVersion = 12u;
+constexpr u32 kSnapshotVersion = 13u;
 constexpr u32 kHeaderSize = 0x100u;
 constexpr u32 kHeapMetadataStart = 0x3Cu;
 constexpr u32 kHeapMetadataEnd = 0x84u;
@@ -162,6 +185,11 @@ constexpr u32 kAnimatedModelOwnerStateEnd = 0x803C2D94u;
 // the heap door entries. A rewind must not leave their future-room bits set.
 constexpr u32 kRoomVisibilityMaskStateStart = 0x803C2E10u;
 constexpr u32 kRoomVisibilityMaskStateEnd = 0x803C3030u;
+// Event objects and their archives live in the gameplay heap, but this
+// pointer-free byte map records which numbered events are active.  Leaving it
+// in the destination epoch re-arms foyer cutscenes before Luigi reaches a door.
+constexpr u32 kEventActiveStateStart = 0x803C20C8u;
+constexpr u32 kEventActiveStateEnd = 0x803C2138u;
 // The grain nodes are game-heap allocations, but both circular-list sentinels
 // live in these adjacent BSS managers and must rewind with their node links.
 constexpr u32 kGrainManagerStateStart = 0x803CBAF0u;
@@ -248,6 +276,8 @@ constexpr StaticRange kStateStaticRanges[] = {
      kAnimatedModelOwnerStateEnd - kAnimatedModelOwnerStateStart},
     {kRoomVisibilityMaskStateStart,
      kRoomVisibilityMaskStateEnd - kRoomVisibilityMaskStateStart},
+    {kEventActiveStateStart,
+     kEventActiveStateEnd - kEventActiveStateStart},
     {kModelOutputStateStart,
      kModelOutputStateEnd - kModelOutputStateStart},
     {kGrainManagerStateStart,
@@ -282,6 +312,7 @@ constexpr u32 kStateStaticsSize =
     (kRoomActorTableEnd - kRoomActorTableStart) +
     (kAnimatedModelOwnerStateEnd - kAnimatedModelOwnerStateStart) +
     (kRoomVisibilityMaskStateEnd - kRoomVisibilityMaskStateStart) +
+    (kEventActiveStateEnd - kEventActiveStateStart) +
     (kModelOutputStateEnd - kModelOutputStateStart) +
     (kGrainManagerStateEnd - kGrainManagerStateStart) + kMainLoopStateSize +
     (kParticleManagerStateEnd - kParticleManagerStateStart) +
@@ -534,15 +565,29 @@ static_assert(sizeof(SnapshotHeader) == kHeaderSize,
 static_assert(kSnapshotBase + kSnapshotCapacity ==
                   SUSAMUNE_MEM2_CFG_PPC_BASE,
               "LM state must end before the config/crash mailboxes");
+static_assert(kDvdFileInfoArray +
+                      kDvdFileInfoCount * kDvdFileInfoSize ==
+                  kDvdCurrentGlobal,
+              "LM primary DVD file-info array boundary drifted");
+static_assert(kDvdPrimaryQueue + 0x20u == kDvdPrimaryMessages &&
+                  kDvdPrimaryMessages +
+                          kDvdFileInfoCount * sizeof(u32) ==
+                      kDvdPrimaryCursor,
+              "LM primary DVD worker layout drifted");
+static_assert(kDvdSecondaryRequestQueue + 0x20u ==
+                      kDvdSecondaryRequestMessage &&
+                  kDvdSecondaryCompletionQueue + 0x20u ==
+                      kDvdSecondaryCompletionMessage,
+              "LM secondary DVD worker layout drifted");
 static_assert((kHeapDataOffset & 31u) == 0,
               "LM heap payload must be cache-line aligned");
-static_assert(kStateStaticsSize == 0x15358u,
+static_assert(kStateStaticsSize == 0x153C8u,
               "LM static manifest size drifted");
-static_assert(kCameraObjectStateOffset == 0x154A0u,
+static_assert(kCameraObjectStateOffset == 0x15510u,
               "LM camera-object sidecar offset drifted");
 static_assert(kCameraObjectStateSize == 0x300u,
               "LM camera-object sidecar size drifted");
-static_assert(kHeapDataOffset == 0x157A0u,
+static_assert(kHeapDataOffset == 0x15820u,
               "LM static manifest packing drifted");
 static_assert(kTransitionHeaderStateEnd - kTransitionHeaderStateStart == 0x14u,
               "LM transition header snapshot boundary drifted");
@@ -583,6 +628,8 @@ static_assert(kRoomVisibilityMaskStateEnd -
                       kRoomVisibilityMaskStateStart ==
                   0x220u,
               "LM room-visibility mask boundary drifted");
+static_assert(kEventActiveStateEnd - kEventActiveStateStart == 0x70u,
+              "LM active-event bitmap boundary drifted");
 static_assert(kGameSdata0End == kCurrentSceneGlobal &&
                   kGameSdata1Start == kCurrentSceneGlobal + 8u,
               "LM sCurScene must remain an uncaptured epoch gate");
@@ -648,6 +695,8 @@ enum class Gate : u32 {
     DrawState,
     DvdPredicate,
     DvdCount,
+    DvdPrimary,
+    DvdSecondary,
     Aram0,
     Aram1,
     Card0,
@@ -876,6 +925,10 @@ inline u8 readByte(u32 address) {
 
 inline void writeWord(u32 address, u32 value) {
     *reinterpret_cast<volatile u32 *>(address) = value;
+}
+
+inline void writeByte(u32 address, u8 value) {
+    *reinterpret_cast<volatile u8 *>(address) = value;
 }
 
 inline bool isMem1Range(u32 address, u32 size) {
@@ -1198,6 +1251,91 @@ bool buildIdentity(LiveIdentity *identity, bool report = false) {
     return true;
 }
 
+bool primaryDvdWorkerIdle(u32 *fault) {
+    const u32 current = readWord(kDvdCurrentGlobal + 8u);
+    const u32 arrayEnd =
+        kDvdFileInfoArray + kDvdFileInfoCount * kDvdFileInfoSize;
+    if (readWord(kDvdCurrentGlobal + 4u) != 1u) {
+        *fault = kDvdCurrentGlobal + 4u;
+        return false;
+    }
+    if (current < kDvdFileInfoArray || current >= arrayEnd ||
+        (current - kDvdFileInfoArray) % kDvdFileInfoSize != 0u) {
+        *fault = kDvdCurrentGlobal + 8u;
+        return false;
+    }
+    if (readWord(kDvdPrimaryCursor) != current) {
+        *fault = kDvdPrimaryCursor;
+        return false;
+    }
+    if (readHalf(kDvdPrimaryThreadState) != kOsThreadWaiting) {
+        *fault = kDvdPrimaryThreadState;
+        return false;
+    }
+    if (readWord(kDvdPrimaryThreadSuspend) != 0u) {
+        *fault = kDvdPrimaryThreadSuspend;
+        return false;
+    }
+    if (readWord(kDvdPrimaryThreadQueue) != kDvdPrimaryQueue + 8u) {
+        *fault = kDvdPrimaryThreadQueue;
+        return false;
+    }
+    if (readWord(kDvdPrimaryQueue) != 0u ||
+        readWord(kDvdPrimaryQueue + 4u) != 0u ||
+        readWord(kDvdPrimaryQueue + 8u) != kDvdPrimaryThread ||
+        readWord(kDvdPrimaryQueue + 0x0Cu) != kDvdPrimaryThread ||
+        readWord(kDvdPrimaryQueue + 0x10u) != kDvdPrimaryMessages ||
+        readWord(kDvdPrimaryQueue + 0x14u) != kDvdFileInfoCount ||
+        readWord(kDvdPrimaryQueue + 0x18u) >= kDvdFileInfoCount ||
+        readWord(kDvdPrimaryQueue + 0x1Cu) != 0u) {
+        *fault = kDvdPrimaryQueue;
+        return false;
+    }
+    return true;
+}
+
+bool secondaryDvdWorkerIdle(u32 *fault) {
+    if (readHalf(kDvdSecondaryThreadState) != kOsThreadWaiting) {
+        *fault = kDvdSecondaryThreadState;
+        return false;
+    }
+    if (readWord(kDvdSecondaryThreadSuspend) != 0u) {
+        *fault = kDvdSecondaryThreadSuspend;
+        return false;
+    }
+    if (readWord(kDvdSecondaryThreadQueue) !=
+        kDvdSecondaryRequestQueue + 8u) {
+        *fault = kDvdSecondaryThreadQueue;
+        return false;
+    }
+    if (readWord(kDvdSecondaryRequestQueue) != 0u ||
+        readWord(kDvdSecondaryRequestQueue + 4u) != 0u ||
+        readWord(kDvdSecondaryRequestQueue + 8u) != kDvdSecondaryThread ||
+        readWord(kDvdSecondaryRequestQueue + 0x0Cu) !=
+            kDvdSecondaryThread ||
+        readWord(kDvdSecondaryRequestQueue + 0x10u) !=
+            kDvdSecondaryRequestMessage ||
+        readWord(kDvdSecondaryRequestQueue + 0x14u) != 1u ||
+        readWord(kDvdSecondaryRequestQueue + 0x18u) != 0u ||
+        readWord(kDvdSecondaryRequestQueue + 0x1Cu) != 0u) {
+        *fault = kDvdSecondaryRequestQueue;
+        return false;
+    }
+    if (readWord(kDvdSecondaryCompletionQueue) != 0u ||
+        readWord(kDvdSecondaryCompletionQueue + 4u) != 0u ||
+        readWord(kDvdSecondaryCompletionQueue + 8u) != 0u ||
+        readWord(kDvdSecondaryCompletionQueue + 0x0Cu) != 0u ||
+        readWord(kDvdSecondaryCompletionQueue + 0x10u) !=
+            kDvdSecondaryCompletionMessage ||
+        readWord(kDvdSecondaryCompletionQueue + 0x14u) != 1u ||
+        readWord(kDvdSecondaryCompletionQueue + 0x18u) != 0u ||
+        readWord(kDvdSecondaryCompletionQueue + 0x1Cu) != 0u) {
+        *fault = kDvdSecondaryCompletionQueue;
+        return false;
+    }
+    return true;
+}
+
 bool ioIdle(bool report = false) {
     const bool predicateBusy =
         reinterpret_cast<BoolFn>(kDvdBusyPredicateAddr)();
@@ -1212,6 +1350,13 @@ bool ioIdle(bool report = false) {
     }
     if (dvdOutstanding != 0u) {
         return gateFailure(Gate::DvdCount, dvdOutstanding, report);
+    }
+    u32 dvdFault = 0u;
+    if (!primaryDvdWorkerIdle(&dvdFault)) {
+        return gateFailure(Gate::DvdPrimary, dvdFault, report);
+    }
+    if (!secondaryDvdWorkerIdle(&dvdFault)) {
+        return gateFailure(Gate::DvdSecondary, dvdFault, report);
     }
     if (aram0 != 0u) {
         return gateFailure(Gate::Aram0, aram0, report);
@@ -1252,6 +1397,40 @@ void copyBytes(void *destination, const void *source, u32 size) {
     for (u32 i = 0; i < size; ++i) {
         out[i] = in[i];
     }
+}
+
+void canonicalizeDvdTransport() {
+    // Every callback has completed and both workers are sleeping before the
+    // scheduler is frozen.  Keep their OS queues/threads live, but discard
+    // completed-request payload pointers into the destination room's erased
+    // heap and restart the neutral 64-entry ring coherently.
+    for (u32 i = 0u; i < kDvdFileInfoCount; ++i) {
+        const u32 info = kDvdFileInfoArray + i * kDvdFileInfoSize;
+        const u32 next = kDvdFileInfoArray +
+            ((i + 1u) % kDvdFileInfoCount) * kDvdFileInfoSize;
+        writeWord(info + 0x60u, 0u);
+        writeWord(info + 0x64u, 0u);
+        writeWord(info + 0x68u, 0u);
+        writeWord(info + 0x6Cu, 0u);
+        writeWord(info + 0x70u, 0u);
+        writeWord(info + 0x74u, 0u);
+        writeWord(info + 0x78u, 0u);
+        writeWord(info + 0x7Cu, next);
+        writeByte(info + 0x80u, 0u);
+        writeWord(info + 0x84u, 0u);
+    }
+    writeWord(kDvdCurrentGlobal, 0u);
+    writeWord(kDvdCurrentGlobal + 4u, 1u);
+    writeWord(kDvdCurrentGlobal + 8u, kDvdFileInfoArray);
+    writeWord(kDvdPrimaryCursor, kDvdFileInfoArray);
+
+    reinterpret_cast<CacheRangeFn>(kDCStoreRangeAddr)(
+        reinterpret_cast<void *>(kDvdFileInfoArray),
+        kDvdFileInfoCount * kDvdFileInfoSize);
+    reinterpret_cast<CacheRangeFn>(kDCStoreRangeAddr)(
+        reinterpret_cast<void *>(kDvdCurrentGlobal), 3u * sizeof(u32));
+    reinterpret_cast<CacheRangeFn>(kDCStoreRangeAddr)(
+        reinterpret_cast<void *>(kDvdPrimaryCursor), sizeof(u32));
 }
 
 void samplePostLoadTransitionWatch(PostLoadTransitionWatch *watch) {
@@ -2791,7 +2970,7 @@ void saveState() {
     const FreezeState freeze = freezeBegin();
     traceSavePhase(0x43u, before.heap);
     LiveIdentity live;
-    if (!buildIdentity(&live) || !sameIdentity(before, live) ||
+    if (!buildIdentity(&live) || !sameIdentity(before, live) || !ioIdle() ||
         !cameraObjectsValid(live, false)) {
         freezeEnd(freeze);
         setReject(LMState::Status::Busy, live.heap);
@@ -3027,7 +3206,8 @@ void loadState() {
         (guardedCrossRoom
              ? guardedCrossRoomRestoreAllowed(header, live, mismatch)
              : mismatch.mask == 0u);
-    if (!liveBuilt || !sameIdentity(before, live) || !liveEpochAllowed ||
+    if (!liveBuilt || !sameIdentity(before, live) || !ioIdle() ||
+        !liveEpochAllowed ||
         !headerMatchesLive(header, live, guardedCrossRoom) ||
         !cameraObjectsValid(live, true)) {
         freezeEnd(freeze);
@@ -3058,6 +3238,7 @@ void loadState() {
         // embedded list links still need to point back through the saved
         // game-owned prefix after the raw allocator rewind.
         repairSavedVolumeList(header);
+        canonicalizeDvdTransport();
     }
     traceLoadPhase(0x64u, guardedCrossRoom ? header->volume[2] : 0u);
 
@@ -3452,6 +3633,10 @@ const char *gateText() {
         return "DVDP";
     case Gate::DvdCount:
         return "DVDC";
+    case Gate::DvdPrimary:
+        return "DVD1";
+    case Gate::DvdSecondary:
+        return "DVD2";
     case Gate::Aram0:
         return "AR0";
     case Gate::Aram1:

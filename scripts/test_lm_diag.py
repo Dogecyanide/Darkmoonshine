@@ -257,7 +257,7 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn("kHeapMetadataStart = 0x3Cu", STATE_SOURCE)
         self.assertIn("kHeapMetadataEnd = 0x84u", STATE_SOURCE)
         self.assertIn("kExpHeapAlignment = 16u", STATE_SOURCE)
-        self.assertIn("kSnapshotVersion = 12u", STATE_SOURCE)
+        self.assertIn("kSnapshotVersion = 13u", STATE_SOURCE)
         self.assertIn("kTransitionHeaderStateStart = 0x803985D4u", STATE_SOURCE)
         self.assertIn("kTransitionHeaderStateEnd = 0x803985E8u", STATE_SOURCE)
         self.assertIn("kTransitionTailStateStart = 0x80398764u", STATE_SOURCE)
@@ -325,6 +325,13 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
             "     kRoomVisibilityMaskStateEnd - kRoomVisibilityMaskStateStart}",
             STATE_SOURCE,
         )
+        self.assertIn("kEventActiveStateStart = 0x803C20C8u", STATE_SOURCE)
+        self.assertIn("kEventActiveStateEnd = 0x803C2138u", STATE_SOURCE)
+        self.assertIn(
+            "{kEventActiveStateStart,\n"
+            "     kEventActiveStateEnd - kEventActiveStateStart}",
+            STATE_SOURCE,
+        )
         self.assertIn("kGrainManagerStateStart = 0x803CBAF0u", STATE_SOURCE)
         self.assertIn("kGrainManagerStateEnd = 0x803CC460u", STATE_SOURCE)
         self.assertIn(
@@ -367,10 +374,10 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn("kGameSbss0End = 0x804A0C90u", STATE_SOURCE)
         self.assertIn("kGameSbss1Start = 0x804A0CB0u", STATE_SOURCE)
         self.assertIn("kGameSbss1End = 0x804A1D10u", STATE_SOURCE)
-        self.assertIn("kStateStaticsSize == 0x15358u", STATE_SOURCE)
-        self.assertIn("kCameraObjectStateOffset == 0x154A0u", STATE_SOURCE)
+        self.assertIn("kStateStaticsSize == 0x153C8u", STATE_SOURCE)
+        self.assertIn("kCameraObjectStateOffset == 0x15510u", STATE_SOURCE)
         self.assertIn("kCameraObjectStateSize == 0x300u", STATE_SOURCE)
-        self.assertIn("kHeapDataOffset == 0x157A0u", STATE_SOURCE)
+        self.assertIn("kHeapDataOffset == 0x15820u", STATE_SOURCE)
         self.assertIn("roomActorCount > kRoomActorCapacity", STATE_SOURCE)
         self.assertIn(
             "readWord(kRoomActorTableStart + i * sizeof(u32))", STATE_SOURCE
@@ -386,6 +393,32 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
             STATE_SOURCE.index("header->magic = kSnapshotMagic"),
         )
         self.assertNotIn("copyWords(reinterpret_cast<void *>(kMem1Start)", STATE_SOURCE)
+
+    def test_dvd_workers_are_quiescent_and_transport_is_repaired(self) -> None:
+        self.assertIn("kDvdFileInfoArray = 0x8038FB98u", STATE_SOURCE)
+        self.assertIn("kDvdFileInfoCount = 64u", STATE_SOURCE)
+        self.assertIn("kDvdFileInfoSize = 0x88u", STATE_SOURCE)
+        self.assertIn("kDvdPrimaryThread = 0x80393DC0u", STATE_SOURCE)
+        self.assertIn("kDvdPrimaryQueue = 0x803940D0u", STATE_SOURCE)
+        self.assertIn("kDvdPrimaryCursor = 0x803941F0u", STATE_SOURCE)
+        self.assertIn("kDvdSecondaryThread = 0x80398200u", STATE_SOURCE)
+        self.assertIn(
+            "kDvdSecondaryRequestQueue = 0x80398510u", STATE_SOURCE
+        )
+        self.assertIn(
+            "kDvdSecondaryCompletionQueue = 0x80398534u", STATE_SOURCE
+        )
+        self.assertIn("bool primaryDvdWorkerIdle", STATE_SOURCE)
+        self.assertIn("bool secondaryDvdWorkerIdle", STATE_SOURCE)
+        self.assertIn("Gate::DvdPrimary", STATE_SOURCE)
+        self.assertIn("Gate::DvdSecondary", STATE_SOURCE)
+        self.assertIn('return "DVD1";', STATE_SOURCE)
+        self.assertIn('return "DVD2";', STATE_SOURCE)
+        self.assertIn("void canonicalizeDvdTransport()", STATE_SOURCE)
+        self.assertIn("writeWord(info + 0x7Cu, next);", STATE_SOURCE)
+        self.assertIn("writeByte(info + 0x80u, 0u);", STATE_SOURCE)
+        self.assertIn("canonicalizeDvdTransport();", STATE_SOURCE)
+        self.assertNotIn("OSInitMessageQueue", STATE_SOURCE)
 
     def test_animated_model_owner_and_update_guard_contract(self) -> None:
         self.assertIn(
@@ -503,7 +536,7 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn("Susamune: epoch mask=%08X first=%s", KERNEL_CRASH_SOURCE)
         self.assertIn("LMEpochFieldName(mask)", KERNEL_CRASH_SOURCE)
         self.assertIn(
-            '"LM STATE X0.3.23 F:%s C:%s H:%s X%02lX"', DIAG_SOURCE
+            '"LM STATE X0.3.24 F:%s C:%s H:%s X%02lX"', DIAG_SOURCE
         )
         self.assertIn("LMState::crossRoomGuardCode()", DIAG_SOURCE)
         self.assertIn(
@@ -537,7 +570,7 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn('"VC %08lX>%08lX D%08lX>%08lX"', DIAG_SOURCE)
         self.assertIn("guardedCrossRoomRestoreAllowed", STATE_SOURCE)
         self.assertIn("repairSavedVolumeList", STATE_SOURCE)
-        self.assertIn("kSnapshotVersion = 12u", STATE_SOURCE)
+        self.assertIn("kSnapshotVersion = 13u", STATE_SOURCE)
 
     def test_resource_manager_epoch_census_is_bounded(self) -> None:
         self.assertIn("kResourceMapBase = 0x80398C50u", STATE_SOURCE)
@@ -612,7 +645,7 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
                       STATE_SOURCE)
         self.assertIn("kModelRegistryOutputStateEnd = 0x803E3CF8u",
                       STATE_SOURCE)
-        self.assertIn("kSnapshotVersion = 12u", STATE_SOURCE)
+        self.assertIn("kSnapshotVersion = 13u", STATE_SOURCE)
 
     def test_camera_state_tracks_persistent_views_safely(self) -> None:
         self.assertIn("kCameraObjectPointerTable = 0x80399BE0u", STATE_SOURCE)

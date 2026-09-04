@@ -6,7 +6,7 @@ Mansion (`GLMJ01`).
 
 ## Current status
 
-`Full-State Experimental 0.3.23` is the current hardware-testable state build.
+`Full-State Experimental 0.3.24` is the current hardware-testable state build.
 
 - The custom Nintendont launcher accepts only the verified Japanese `GLMJ01`
   revision-0 executable for injection.
@@ -21,12 +21,14 @@ Mansion (`GLMJ01`).
   animated-model owner registry, the door lookup/transition banks and their
   heap pointers, room/door visibility masks, the complete room event/text
   interpreter and request, the room actor-pointer table, the fixed
-  room-streamer and model-resource tables, the mounted-volume list header, and
-  libc RNG state. The fade controller's embedded `J2DPicture` remains live;
+  room-streamer and model-resource tables, the active-event bitmap, the
+  mounted-volume list header, and libc RNG state. The fade controller's
+  embedded `J2DPicture` remains live;
   the three persistent camera-view objects receive a guarded sidecar only if
   they are outside the gameplay heap.
-- Save/load is refused while DVD, ARAM, or memory-card work is active, while
-  the heap is unstable, when a slot checksum fails, or when the observed live
+- Save/load is refused while either DVD worker is not provably asleep on an
+  empty queue, while DVD, ARAM, or memory-card work is active, while the heap
+  is unstable, when a slot checksum fails, or when the observed live
   allocator/resource markers differ from the saved ones.
 - Each transaction drains LM's prior JAudio scene handles while preserving its
   required replacement bootstrap handle, then holds the OS scheduler while
@@ -73,12 +75,17 @@ Mansion (`GLMJ01`).
   at `0x803C7CA0-0x803C8428`, and the 128-entry room actor-pointer table at
   `0x803C8490-0x803C8690`. The actor count already lives in captured SBSS, so
   the count and table now rewind together.
+- Snapshot format 13 adds the pointer-free active-event bitmap at
+  `0x803C20C8-0x803C2138`, closing the split where saved heap event objects
+  were paired with destination-room activation flags. Cross-room restores
+  also discard completed DVD request payload pointers and restart LM's
+  64-entry request ring while both original OS workers and queues remain live.
 
 Controls are D-pad Left to save and D-pad Right to load. Confirm a same-room
 restore first. For the focused cross-room test, save outside the intended foyer
 door, enter it and wait until Luigi is controllable, load back outside, then
 touch that same door again. Report whether both the door animation and room
-load complete. `0.3.23` may attempt this restore instead of returning `EPOCH`;
+load complete. `0.3.24` may attempt this restore instead of returning `EPOCH`;
 a successful load is evidence for this specific resource shape, not general
 cross-room support. Any different room, floor, transition, or asynchronous
 state is expected to refuse safely. This remains a crash-risk feasibility
@@ -120,7 +127,7 @@ The build emits a version-labelled tester package plus a stable compatibility
 name:
 
 ```text
-build-lm-diag/Moonshine-Luigis-Mansion-Full-State-Experimental-0.3.23.zip
+build-lm-diag/Moonshine-Luigis-Mansion-Full-State-Experimental-0.3.24.zip
 build-lm-diag/moonshine_luigis_mansion_launcher.zip
 ```
 
@@ -144,7 +151,7 @@ disc or ISO.
 
 Back up any real memory-card data, install the four packaged files under
 `apps/moonshine_luigis_mansion/`, and launch a clean revision-0 GLMJ01 image.
-The overlay must start with `LM STATE X0.3.23`; wait until `F`, `C`, `H`, and
+The overlay must start with `LM STATE X0.3.24`; wait until `F`, `C`, `H`, and
 `G` are `OK` and `ST` is at least 3. The trailing `X` byte reports the guarded
 cross-room path: `X00` means it has not been attempted, `XA0` means it passed,
 and `X01` through `X08` identify the refusal stage: epoch mask, saved-census
