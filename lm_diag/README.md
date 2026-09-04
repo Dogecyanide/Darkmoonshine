@@ -14,7 +14,7 @@ unmodified.
 The overlay rows are:
 
 ```text
-LM STATE X0.3.25 F:<floor> C:<canary> H:<heap check> X<cross-room guard>
+LM STATE X0.3.26 F:<floor> C:<canary> H:<heap check> X<cross-room guard>
 S:<state status> ST<stable frames> SZ<snapshot KiB> G:<gate> <gate value>
 E:<first epoch field> M<mismatch mask> <saved value>><live value>
 V:<topology> S<saved count>>L<live count> -<removed> +<added> F<save>/<live fault>
@@ -100,6 +100,11 @@ therefore identifies the exact call that did not return.
 Version `0.3.10` adds `D0/D1` around every direct call inside the central
 per-view routine at `0x8000BA64`, which `0.3.9` isolated. These records use the
 same `arg0` call-site and `arg1` callee convention.
+
+Those high-volume `B0/C0/D0/E0/F2` probe families were temporary diagnostic
+instrumentation. Version `0.3.26` removes them after the final `0.3.25` journal
+identified the stale scene-effect manager; the coarse restored-frame,
+presenter, audio-tail, loop, transition, and attempt-journal markers remain.
 
 Version `0.3.11` captures the adjacent grain-effect managers at
 `0x803CBAF0-0x803CC460`. Their circular-list sentinels are static while their
@@ -340,10 +345,36 @@ half (`FFFF` means not found). On entry (`F2`), `arg1` is the actor pointer; on
 return (`F3`), it is the actor's vtable. These markers target the delayed
 movement failure seen only after otherwise successful room rewinds.
 
-For the current `0.3.25` pass, create a new version-14 state, repeat the
+Version `0.3.26` advances the snapshot to format 15 and captures the adjacent
+scene-effect manager at `803CD1F4-803CD4C8`. The terminal `0.3.25` attempt
+journal stopped inside `fn_80155118`, called at `80156AF0` with that manager as
+its object; the function reads its `+0x244`, `+0x248`, and `+0x250` list state
+after walking resumes. The static payload is now `0x160AC` bytes, the
+camera-object sidecar begins at `0x161F4`, and the aligned gameplay heap begins
+at `0x16500`.
+
+The two 30,412-byte model censuses no longer occupy the injected MEM1 image.
+The saved view aliases the checksum-protected model tables already packed in
+the snapshot, while a coherent live copy and five saved metadata words reserve
+`0x76E0` bytes at the high end of the MEM2 slot. Before a saved census is
+published, its packed table hashes must match the coherent live capture. This
+and removal of 144 resolved call probes reduce the payload from 140,952 to
+46,104 bytes; 21 authenticated write hooks remain, including both targeted
+animated-model safety/repair hooks, the HUD, crash capture, and journal spine.
+
+The ordered cross-room guard can now retain up to eight removed and eight added
+archive indices and sixteen corresponding model changes. This only removes the
+old diagnostic-capacity refusal: all existing list-order, archive ownership,
+room-streamer, pending-I/O, model-state, and exact-match predicates remain
+fail-closed.
+
+For the current `0.3.26` pass, create a new version-15 state, repeat the
 same-room and cross-room/re-entry checks above, then walk normally after a
-successful load. After any exception, hard lock, or reboot, do not make another
-successful save before collecting the SD card. Copy all of these when present:
+successful load. Also retry the bottom-foyer save to upstairs-room load that
+previously stopped at `X04`; it may now load or advance to a substantive
+`X05-X08` refusal. After any exception, hard lock, or reboot, do not make
+another successful save before collecting the SD card. Copy all of these when
+present:
 
 ```text
 /ndebug.log

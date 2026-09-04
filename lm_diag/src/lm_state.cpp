@@ -129,9 +129,9 @@ constexpr u32 kRarcMagic = 0x52415243u;  // 'RARC'
 constexpr u32 kMem1Start = 0x80000000u;
 constexpr u32 kMem1End = 0x81800000u;
 constexpr u32 kSnapshotBase = SUSAMUNE_MEM2_SNAPSHOT_PPC_BASE;
-constexpr u32 kSnapshotCapacity = SUSAMUNE_MEM2_SNAPSHOT_SIZE;
+constexpr u32 kSnapshotStorageSize = SUSAMUNE_MEM2_SNAPSHOT_SIZE;
 constexpr u32 kSnapshotMagic = 0x4C4D5354u;  // 'LMST'
-constexpr u32 kSnapshotVersion = 14u;
+constexpr u32 kSnapshotVersion = 15u;
 constexpr u32 kHeaderSize = 0x100u;
 constexpr u32 kHeapMetadataStart = 0x3Cu;
 constexpr u32 kHeapMetadataEnd = 0x84u;
@@ -194,6 +194,12 @@ constexpr u32 kEventActiveStateEnd = 0x803C2138u;
 // live in these adjacent BSS managers and must rewind with their node links.
 constexpr u32 kGrainManagerStateStart = 0x803CBAF0u;
 constexpr u32 kGrainManagerStateEnd = 0x803CC460u;
+// This scene-effect manager walks game-heap nodes from fixed intrusive-list
+// anchors. 0.3.25's terminal journal stopped inside fn_80155118 while reading
+// this exact manager after a room rewind. Stop at CD4C8; separate globals fill
+// the gap before the JPA manager at CD4FC.
+constexpr u32 kSceneEffectManagerStateStart = 0x803CD1F4u;
+constexpr u32 kSceneEffectManagerStateEnd = 0x803CD4C8u;
 // The JPA emitter manager owns fixed intrusive-list anchors and counters while
 // its emitter/particle pools live in the rewound gameplay heap. Rewind the
 // complete fixed manager so those two halves cannot describe different eras.
@@ -235,6 +241,19 @@ constexpr u32 kModelRegistryBase = 0x8037EC70u;
 constexpr u32 kModelRegistryEntrySize = 0x40u;
 constexpr u32 kModelRegistrySize =
     kModelEntryCount * kModelRegistryEntrySize;
+constexpr u32 kModelCensusMetadataSize = 5u * sizeof(u32);
+constexpr u32 kModelCensusRecordSize =
+    kModelCensusMetadataSize + kModelTableSize + kModelRegistrySize;
+// Keep one coherent live model-table copy plus the saved hashes in MEM2.  The
+// saved table bytes already exist in the ordinary snapshot static ranges, so
+// carrying two 30 KiB copies in the injected MEM1 payload was pure overhead.
+constexpr u32 kModelCensusScratchSize =
+    kModelCensusRecordSize + kModelCensusMetadataSize;
+constexpr u32 kSnapshotCapacity =
+    kSnapshotStorageSize - kModelCensusScratchSize;
+constexpr u32 kLiveModelCensusAddress = kSnapshotBase + kSnapshotCapacity;
+constexpr u32 kSavedModelCensusMetadataAddress =
+    kLiveModelCensusAddress + kModelCensusRecordSize;
 constexpr u32 kResourceMapBase = 0x80398C50u;
 constexpr u32 kResourceMapSize = 0x200u;
 constexpr u32 kResourceActiveBase = 0x80398E90u;
@@ -287,6 +306,8 @@ constexpr StaticRange kStateStaticRanges[] = {
      kModelOutputStateEnd - kModelOutputStateStart},
     {kGrainManagerStateStart,
      kGrainManagerStateEnd - kGrainManagerStateStart},
+    {kSceneEffectManagerStateStart,
+     kSceneEffectManagerStateEnd - kSceneEffectManagerStateStart},
     {kParticleManagerStateStart,
      kParticleManagerStateEnd - kParticleManagerStateStart},
     {kEffectControllerStateStart,
@@ -307,6 +328,16 @@ constexpr u32 kStateStaticRangeCount =
     sizeof(kStateStaticRanges) / sizeof(kStateStaticRanges[0]);
 constexpr u32 kStateStaticsOffset =
     kHeapMetadataOffset + kHeapMetadataSize;
+constexpr u32 kModelTableSnapshotOffset =
+    kStateStaticsOffset +
+    (kTransitionHeaderStateEnd - kTransitionHeaderStateStart) +
+    (kTransitionTailStateEnd - kTransitionTailStateStart) +
+    (kRendererStateEnd - kRendererStateStart) +
+    (kCameraDescriptorStateEnd - kCameraDescriptorStateStart) +
+    (kDoorVisibilityStateEnd - kDoorVisibilityStateStart) +
+    (kCameraManagerStateEnd - kCameraManagerStateStart);
+constexpr u32 kModelRegistrySnapshotOffset =
+    kModelTableSnapshotOffset + kModelTableSize;
 constexpr u32 kStateStaticsSize =
     (kTransitionHeaderStateEnd - kTransitionHeaderStateStart) +
     (kTransitionTailStateEnd - kTransitionTailStateStart) +
@@ -322,6 +353,7 @@ constexpr u32 kStateStaticsSize =
     (kEventActiveStateEnd - kEventActiveStateStart) +
     (kModelOutputStateEnd - kModelOutputStateStart) +
     (kGrainManagerStateEnd - kGrainManagerStateStart) + kMainLoopStateSize +
+    (kSceneEffectManagerStateEnd - kSceneEffectManagerStateStart) +
     (kParticleManagerStateEnd - kParticleManagerStateStart) +
     (kEffectControllerStateEnd - kEffectControllerStateStart) +
     (kModelRegistryOutputStateEnd - kModelRegistryOutputStateStart) +
@@ -349,10 +381,15 @@ constexpr u32 kPostLoadTraceHeartbeatFrames = 300u;
 constexpr u32 kPostLoadDoorWindowFrames = 240u;
 constexpr u32 kPostLoadTransitionBurstUpdates = 2u;
 constexpr u32 kMaxVolumes = 32u;
-constexpr u32 kVolumeRemovedSlots = 3u;
-constexpr u32 kVolumeAddedSlots = 3u;
+// Cross-floor foyer transitions replace more archives than adjacent rooms.
+// Keep the guard fail-closed, but retain enough exact indices to validate the
+// observed 5-removed/2-added topology instead of rejecting on bookkeeping
+// capacity alone.
+constexpr u32 kVolumeRemovedSlots = 8u;
+constexpr u32 kVolumeAddedSlots = 8u;
+constexpr u32 kVolumeDisplayedPerKind = 3u;
 constexpr u32 kVolumeChangeRows =
-    kVolumeRemovedSlots + kVolumeAddedSlots;
+    2u * kVolumeDisplayedPerKind;
 constexpr u32 kVolumeNameBytes = 16u;
 constexpr u32 kVolumeNameHashBytes = 32u;
 constexpr u32 kVolumeNameValid = 1u << 0;
@@ -371,7 +408,7 @@ constexpr u32 kResourceSlotCount = 7u;
 constexpr u32 kResourceWantedCapacity = 24u;
 constexpr u32 kResourceRecordSize = 0x40u;
 constexpr u32 kResourceSlotSize = 0x70800u;
-constexpr u32 kModelChangeSlots = 4u;
+constexpr u32 kModelChangeSlots = 16u;
 constexpr u32 kModelNameBytes = 9u;
 constexpr u32 kModelPathLimit = 96u;
 constexpr u32 kModelChangedPrimary = 1u << 0;
@@ -574,9 +611,20 @@ struct SnapshotHeader {
 
 static_assert(sizeof(SnapshotHeader) == kHeaderSize,
               "LM snapshot header must remain one cache-aligned page");
-static_assert(kSnapshotBase + kSnapshotCapacity ==
+static_assert(kSnapshotBase + kSnapshotStorageSize ==
                   SUSAMUNE_MEM2_CFG_PPC_BASE,
               "LM state must end before the config/crash mailboxes");
+static_assert(kModelCensusScratchSize < kSnapshotStorageSize,
+              "LM model census scratch must fit inside snapshot storage");
+static_assert(kSnapshotBase + kSnapshotCapacity ==
+                  kLiveModelCensusAddress &&
+                  kSavedModelCensusMetadataAddress +
+                          kModelCensusMetadataSize ==
+                      SUSAMUNE_MEM2_CFG_PPC_BASE,
+              "LM model census scratch must occupy the snapshot tail");
+static_assert((kModelCensusScratchSize & 31u) == 0u &&
+                  kHeapDataOffset < kSnapshotCapacity,
+              "LM snapshot payload and census scratch must remain disjoint");
 static_assert(kDvdFileInfoArray +
                       kDvdFileInfoCount * kDvdFileInfoSize ==
                   kDvdCurrentGlobal,
@@ -593,14 +641,24 @@ static_assert(kDvdSecondaryRequestQueue + 0x20u ==
               "LM secondary DVD worker layout drifted");
 static_assert((kHeapDataOffset & 31u) == 0,
               "LM heap payload must be cache-line aligned");
-static_assert(kStateStaticsSize == 0x15DD8u,
+static_assert(kStateStaticsSize == 0x160ACu,
               "LM static manifest size drifted");
-static_assert(kCameraObjectStateOffset == 0x15F20u,
+static_assert(kCameraObjectStateOffset == 0x161F4u,
               "LM camera-object sidecar offset drifted");
 static_assert(kCameraObjectStateSize == 0x300u,
               "LM camera-object sidecar size drifted");
-static_assert(kHeapDataOffset == 0x16220u,
+static_assert(kHeapDataOffset == 0x16500u,
               "LM static manifest packing drifted");
+static_assert(kModelTableSnapshotOffset == 0xB50u &&
+                  kModelRegistrySnapshotOffset == 0x4088u &&
+                  kModelRegistrySnapshotOffset + kModelRegistrySize ==
+                      0x8208u,
+              "LM saved model census offsets drifted");
+static_assert(kStateStaticRanges[6].address == kModelTableBase &&
+                  kStateStaticRanges[6].size == kModelTableSize &&
+                  kStateStaticRanges[7].address == kModelRegistryBase &&
+                  kStateStaticRanges[7].size == kModelRegistrySize,
+              "LM model census ranges left their packed snapshot offsets");
 static_assert(kTransitionHeaderStateEnd - kTransitionHeaderStateStart == 0x14u,
               "LM transition header snapshot boundary drifted");
 static_assert(kTransitionTailStateEnd - kTransitionTailStateStart == 0x0Cu,
@@ -630,6 +688,10 @@ static_assert(kCameraDescriptorStateEnd == kResourceMapBase,
               "LM camera descriptors must stop before room resources");
 static_assert(kGrainManagerStateEnd - kGrainManagerStateStart == 0x970u,
               "LM grain-manager snapshot boundary drifted");
+static_assert(kSceneEffectManagerStateEnd -
+                      kSceneEffectManagerStateStart ==
+                  0x2D4u,
+              "LM scene-effect manager snapshot boundary drifted");
 static_assert(kParticleManagerStateEnd - kParticleManagerStateStart == 0xBF4u,
               "LM particle-manager snapshot boundary drifted");
 static_assert(kEffectControllerStateEnd - kEffectControllerStateStart ==
@@ -812,14 +874,24 @@ struct ResourceDiff {
     u32 wantedAddedIds[2];
 };
 
-struct ModelCensus {
+struct ModelCensusMetadata {
     u32 generation;
     u32 valid;
     u32 fault;
     u32 signature;
     u32 registrySignature;
+};
+
+struct ModelCensus {
+    ModelCensusMetadata metadata;
     u32 words[kModelTableSize / sizeof(u32)];
     u32 registryWords[kModelRegistrySize / sizeof(u32)];
+};
+
+struct ModelCensusView {
+    ModelCensusMetadata *metadata;
+    u32 *words;
+    u32 *registryWords;
 };
 
 struct ModelChange {
@@ -850,6 +922,17 @@ static_assert(kModelTableSize == 0x3538u,
               "LM model descriptor table range drifted");
 static_assert(kModelRegistrySize == 0x4180u,
               "LM model registry table range drifted");
+static_assert(kVolumeRemovedSlots < 32u && kVolumeAddedSlots < 32u &&
+                  kModelChangeSlots >=
+                      kVolumeRemovedSlots + kVolumeAddedSlots,
+              "LM cross-room change masks exceed their exact storage");
+static_assert(sizeof(ModelCensusMetadata) == kModelCensusMetadataSize,
+              "LM model census metadata layout drifted");
+static_assert(sizeof(ModelCensus) == kModelCensusRecordSize,
+              "LM model census scratch layout drifted");
+static_assert(kModelCensusRecordSize == 0x76CCu &&
+                  kModelCensusScratchSize == 0x76E0u,
+              "LM model census scratch size drifted");
 
 LMState::Status sStatus = LMState::Status::Empty;
 LiveIdentity sLastIdentity = {};
@@ -861,8 +944,19 @@ VolumeDiff sVolumeDiff = {};
 ResourceCensus sSavedResourceCensus = {};
 ResourceCensus sLiveResourceCensus = {};
 ResourceDiff sResourceDiff = {};
-ModelCensus sSavedModelCensus = {};
-ModelCensus sLiveModelCensus = {};
+const ModelCensusView sSavedModelCensus = {
+    reinterpret_cast<ModelCensusMetadata *>(
+        kSavedModelCensusMetadataAddress),
+    reinterpret_cast<u32 *>(kSnapshotBase + kModelTableSnapshotOffset),
+    reinterpret_cast<u32 *>(kSnapshotBase + kModelRegistrySnapshotOffset),
+};
+const ModelCensusView sLiveModelCensus = {
+    reinterpret_cast<ModelCensusMetadata *>(kLiveModelCensusAddress),
+    reinterpret_cast<u32 *>(kLiveModelCensusAddress +
+                            kModelCensusMetadataSize),
+    reinterpret_cast<u32 *>(kLiveModelCensusAddress +
+                            kModelCensusMetadataSize + kModelTableSize),
+};
 ModelDiff sModelDiff = {};
 bool sHaveIdentity;
 bool sSlotInitialized;
@@ -2134,9 +2228,9 @@ void commitSavedResourceCensus(u32 generation) {
     sSavedResourceCensus.generation = generation;
 }
 
-void failModelCensus(ModelCensus *census, u32 fault) {
-    census->fault = fault;
-    census->valid = 0u;
+void failModelCensus(const ModelCensusView &census, u32 fault) {
+    census.metadata->fault = fault;
+    census.metadata->valid = 0u;
 }
 
 u32 hashModelWords(const u32 *words, u32 size) {
@@ -2147,40 +2241,41 @@ u32 hashModelWords(const u32 *words, u32 size) {
     return hash;
 }
 
-bool captureModelCensus(ModelCensus *census) {
-    clearWords(census, sizeof(*census));
+bool captureModelCensus(const ModelCensusView &census) {
+    clearWords(census.metadata, kModelCensusRecordSize);
     const u32 tableBefore =
         hashResourceWords(kModelTableBase, kModelTableSize);
     const u32 registryBefore =
         hashResourceWords(kModelRegistryBase, kModelRegistrySize);
-    copyWords(census->words, reinterpret_cast<const void *>(kModelTableBase),
+    copyWords(census.words, reinterpret_cast<const void *>(kModelTableBase),
               kModelTableSize);
-    copyWords(census->registryWords,
+    copyWords(census.registryWords,
               reinterpret_cast<const void *>(kModelRegistryBase),
               kModelRegistrySize);
     const u32 tableAfter = hashResourceWords(kModelTableBase, kModelTableSize);
     const u32 registryAfter =
         hashResourceWords(kModelRegistryBase, kModelRegistrySize);
-    const u32 tableCopy = hashModelWords(census->words, kModelTableSize);
+    const u32 tableCopy = hashModelWords(census.words, kModelTableSize);
     const u32 registryCopy =
-        hashModelWords(census->registryWords, kModelRegistrySize);
+        hashModelWords(census.registryWords, kModelRegistrySize);
     if (tableBefore != tableAfter || tableAfter != tableCopy ||
         registryBefore != registryAfter || registryAfter != registryCopy) {
         failModelCensus(census, kModelFaultChanged);
         return false;
     }
-    census->signature = tableCopy;
-    census->registrySignature = registryCopy;
-    census->valid = 1u;
+    census.metadata->signature = tableCopy;
+    census.metadata->registrySignature = registryCopy;
+    census.metadata->valid = 1u;
     return true;
 }
 
-u32 modelEntryWord(const ModelCensus &census, u32 index, u32 offset) {
+u32 modelEntryWord(const ModelCensusView &census, u32 index, u32 offset) {
     return census.words[index * (kModelEntrySize / sizeof(u32)) +
                         offset / sizeof(u32)];
 }
 
-bool sameModelEntry(const ModelCensus &saved, const ModelCensus &live,
+bool sameModelEntry(const ModelCensusView &saved,
+                    const ModelCensusView &live,
                     u32 index) {
     const u32 first = index * (kModelEntrySize / sizeof(u32));
     for (u32 i = 0; i < kModelEntrySize / sizeof(u32); ++i) {
@@ -2191,21 +2286,21 @@ bool sameModelEntry(const ModelCensus &saved, const ModelCensus &live,
     return true;
 }
 
-u32 modelRegistryWord(const ModelCensus &census, u32 index, u32 offset) {
+u32 modelRegistryWord(const ModelCensusView &census, u32 index, u32 offset) {
     return census.registryWords[
         index * (kModelRegistryEntrySize / sizeof(u32)) +
         offset / sizeof(u32)];
 }
 
-u32 modelRegistryEntrySignature(const ModelCensus &census, u32 index) {
+u32 modelRegistryEntrySignature(const ModelCensusView &census, u32 index) {
     const u32 first =
         index * (kModelRegistryEntrySize / sizeof(u32));
     return hashModelWords(&census.registryWords[first],
                           kModelRegistryEntrySize);
 }
 
-bool sameModelRegistryEntry(const ModelCensus &saved,
-                            const ModelCensus &live, u32 index) {
+bool sameModelRegistryEntry(const ModelCensusView &saved,
+                            const ModelCensusView &live, u32 index) {
     const u32 first =
         index * (kModelRegistryEntrySize / sizeof(u32));
     for (u32 i = 0; i < kModelRegistryEntrySize / sizeof(u32); ++i) {
@@ -2262,12 +2357,13 @@ void clearModelDiff() {
     }
 }
 
-void diffModelCensus(const ModelCensus &saved, const ModelCensus &live) {
+void diffModelCensus(const ModelCensusView &saved,
+                     const ModelCensusView &live) {
     clearModelDiff();
     sModelDiff.ready = 1u;
-    sModelDiff.savedValid = saved.valid;
-    sModelDiff.liveValid = live.valid;
-    if (!saved.valid || !live.valid) return;
+    sModelDiff.savedValid = saved.metadata->valid;
+    sModelDiff.liveValid = live.metadata->valid;
+    if (!saved.metadata->valid || !live.metadata->valid) return;
 
     for (u32 i = 0; i < kModelEntryCount; ++i) {
         const bool primaryChanged = !sameModelEntry(saved, live, i);
@@ -2304,10 +2400,21 @@ void diffModelCensus(const ModelCensus &saved, const ModelCensus &live) {
 }
 
 void commitSavedModelCensus(u32 generation) {
-    sSavedModelCensus.generation = 0u;
-    copyBytes(&sSavedModelCensus, &sLiveModelCensus,
-              sizeof(sSavedModelCensus));
-    sSavedModelCensus.generation = generation;
+    sSavedModelCensus.metadata->generation = 0u;
+    copyBytes(sSavedModelCensus.metadata, sLiveModelCensus.metadata,
+              kModelCensusMetadataSize);
+    const u32 tableCopy =
+        hashModelWords(sSavedModelCensus.words, kModelTableSize);
+    const u32 registryCopy =
+        hashModelWords(sSavedModelCensus.registryWords, kModelRegistrySize);
+    if (!sLiveModelCensus.metadata->valid ||
+        tableCopy != sLiveModelCensus.metadata->signature ||
+        registryCopy != sLiveModelCensus.metadata->registrySignature) {
+        failModelCensus(sSavedModelCensus, kModelFaultChanged);
+    }
+    // Generation is the commit word for the scratch metadata.  Publish it
+    // last so a torn/incoherent census can only reject a cross-room load.
+    sSavedModelCensus.metadata->generation = generation;
 }
 
 void diagnoseVolumeEpoch(const SnapshotHeader *header,
@@ -2319,8 +2426,8 @@ void diagnoseVolumeEpoch(const SnapshotHeader *header,
         captureResourceCensus(&sLiveResourceCensus, live);
         diffResourceCensus(sSavedResourceCensus, sLiveResourceCensus);
     }
-    if (sSavedModelCensus.generation == header->generation) {
-        captureModelCensus(&sLiveModelCensus);
+    if (sSavedModelCensus.metadata->generation == header->generation) {
+        captureModelCensus(sLiveModelCensus);
         diffModelCensus(sSavedModelCensus, sLiveModelCensus);
     }
     const u32 volumeMask = SUSAMUNE_LM_EPOCH_VOLUME_COUNT |
@@ -2538,7 +2645,7 @@ bool guardedCrossRoomRestoreAllowed(const SnapshotHeader *header,
     sCrossRoomGuard = kCrossRoomGuardGeneration;
     if (sSavedVolumeCensus.generation != header->generation ||
         sSavedResourceCensus.generation != header->generation ||
-        sSavedModelCensus.generation != header->generation) {
+        sSavedModelCensus.metadata->generation != header->generation) {
         return false;
     }
 
@@ -2590,8 +2697,8 @@ bool guardedCrossRoomRestoreAllowed(const SnapshotHeader *header,
     }
 
     sCrossRoomGuard = kCrossRoomGuardModel;
-    if (!sModelDiff.ready || !sSavedModelCensus.valid ||
-        !sLiveModelCensus.valid) {
+    if (!sModelDiff.ready || !sSavedModelCensus.metadata->valid ||
+        !sLiveModelCensus.metadata->valid) {
         return false;
     }
     sCrossRoomGuard = kCrossRoomGuardModelShape;
@@ -2879,8 +2986,8 @@ void initializeSlot() {
     clearWords(&sSavedResourceCensus, sizeof(sSavedResourceCensus));
     clearWords(&sLiveResourceCensus, sizeof(sLiveResourceCensus));
     clearResourceDiff();
-    clearWords(&sSavedModelCensus, sizeof(sSavedModelCensus));
-    clearWords(&sLiveModelCensus, sizeof(sLiveModelCensus));
+    clearWords(sSavedModelCensus.metadata, kModelCensusMetadataSize);
+    clearWords(sLiveModelCensus.metadata, kModelCensusRecordSize);
     clearModelDiff();
     sSlotInitialized = true;
 }
@@ -3005,7 +3112,7 @@ void saveState() {
     }
     captureVolumeCensus(&sLiveVolumeCensus, live);
     captureResourceCensus(&sLiveResourceCensus, live);
-    captureModelCensus(&sLiveModelCensus);
+    captureModelCensus(sLiveModelCensus);
 
     traceSavePhase(0x60u, live.heap);
     SnapshotHeader *header =
@@ -3353,7 +3460,7 @@ const VolumeDescriptor *volumeChangeEntry(u32 displayIndex, bool *added) {
     if (!sVolumeDiff.ready || displayIndex >= kVolumeChangeRows) {
         return nullptr;
     }
-    if (displayIndex < kVolumeRemovedSlots) {
+    if (displayIndex < kVolumeDisplayedPerKind) {
         if (displayIndex >= sVolumeDiff.removedCount) {
             return nullptr;
         }
@@ -3362,9 +3469,9 @@ const VolumeDescriptor *volumeChangeEntry(u32 displayIndex, bool *added) {
                    ? &sSavedVolumeCensus.entries[index]
                    : nullptr;
     }
-    const u32 addedIndex = displayIndex - kVolumeRemovedSlots;
+    const u32 addedIndex = displayIndex - kVolumeDisplayedPerKind;
     if (addedIndex < sVolumeDiff.addedCount &&
-        addedIndex < kVolumeAddedSlots) {
+        addedIndex < kVolumeDisplayedPerKind) {
         const u32 index = sVolumeDiff.addedIndices[addedIndex];
         if (index < sLiveVolumeCensus.count) {
             *added = true;
@@ -3991,27 +4098,31 @@ u32 resourceWantedAddedId(u32 index) {
 }
 
 u32 modelSavedFault() {
-    return sModelDiff.ready ? sSavedModelCensus.fault : 0u;
+    return sModelDiff.ready ? sSavedModelCensus.metadata->fault : 0u;
 }
 
 u32 modelLiveFault() {
-    return sModelDiff.ready ? sLiveModelCensus.fault : 0u;
+    return sModelDiff.ready ? sLiveModelCensus.metadata->fault : 0u;
 }
 
 u32 modelSavedSignature() {
-    return sModelDiff.ready ? sSavedModelCensus.signature : 0u;
+    return sModelDiff.ready ? sSavedModelCensus.metadata->signature : 0u;
 }
 
 u32 modelLiveSignature() {
-    return sModelDiff.ready ? sLiveModelCensus.signature : 0u;
+    return sModelDiff.ready ? sLiveModelCensus.metadata->signature : 0u;
 }
 
 u32 modelSavedRegistrySignature() {
-    return sModelDiff.ready ? sSavedModelCensus.registrySignature : 0u;
+    return sModelDiff.ready
+               ? sSavedModelCensus.metadata->registrySignature
+               : 0u;
 }
 
 u32 modelLiveRegistrySignature() {
-    return sModelDiff.ready ? sLiveModelCensus.registrySignature : 0u;
+    return sModelDiff.ready
+               ? sLiveModelCensus.metadata->registrySignature
+               : 0u;
 }
 
 u32 modelChangedCount() {

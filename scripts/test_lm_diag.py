@@ -62,150 +62,6 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
                     "BL",
                     0x4BFF8239,
                 ),
-                (0x8000B930, "diagnosticMainUpdateB930", "BL", 0x48003501),
-                (0x8000B934, "diagnosticMainUpdateB934", "BL", 0x4804BD51),
-                (0x8000B938, "diagnosticMainUpdateB938", "BL", 0x48000D19),
-                (0x8000B948, "diagnosticMainUpdateB948", "BL", 0x4817B501),
-                (0x8000B94C, "diagnosticMainUpdateB94C", "BL", 0x48000DE1),
-                (0x8000B958, "diagnosticMainUpdateB958", "BL", 0x480321F9),
-                (0x8000B974, "diagnosticMainUpdateB974", "BL", 0x480008C5),
-                (0x8000B978, "diagnosticMainUpdateB978", "BL", 0x480009F1),
-                (0x8000B97C, "diagnosticMainUpdateB97C", "BL", 0x48000F3D),
-                (0x8000B980, "diagnosticMainUpdateB980", "BL", 0x480011AD),
-                (0x8000B984, "diagnosticMainUpdateB984", "BL", 0x48001329),
-                (0x8000B988, "diagnosticMainUpdateB988", "BL", 0x480012A5),
-                (0x8000B9B8, "diagnosticMainUpdateB9B8", "BL", 0x48056091),
-                (0x8000B9D4, "diagnosticMainUpdateB9D4", "BL", 0x480058A1),
-                (0x8000B9D8, "diagnosticMainUpdateB9D8", "BL", 0x480201F9),
-                (0x8000B9DC, "diagnosticMainUpdateB9DC", "BL", 0x4803A7ED),
-                (0x8000B9E0, "diagnosticMainUpdateB9E0", "BL", 0x4802C181),
-                (0x8000B9E4, "diagnosticMainUpdateB9E4", "BL", 0x48038151),
-                (0x8000B9E8, "diagnosticMainUpdateB9E8", "BL", 0x48117819),
-                (0x8000B9EC, "diagnosticMainUpdateB9EC", "BL", 0x481380ED),
-                (0x8000B9F0, "diagnosticMainUpdateB9F0", "BL", 0x4805459D),
-                (0x8000B9F4, "diagnosticMainUpdateB9F4", "BL", 0x480055C5),
-                (0x8000B9FC, "diagnosticMainUpdateB9FC", "BL", 0x48005879),
-                (0x8000BA00, "diagnosticMainUpdateBA00", "BL", 0x480ACA79),
-                (0x8000BA10, "diagnosticMainUpdateBA10", "BL", 0x48179795),
-                (0x8000BA14, "diagnosticMainUpdateBA14", "BL", 0x48155345),
-                (0x8000BA20, "diagnosticMainUpdateBA20", "BL", 0x48152A15),
-                (0x8000BA24, "diagnosticMainUpdateBA24", "BL", 0x4805316D),
-                (0x8000BA28, "diagnosticMainUpdateBA28", "BL", 0x48054D1D),
-                (0x8000BA2C, "diagnosticMainUpdateBA2C", "BL", 0x48065535),
-                (0x8000BA30, "diagnosticMainUpdateBA30", "BL", 0x48111F59),
-                (0x8000BA34, "diagnosticMainUpdateBA34", "BL", 0x4814B09D),
-                (0x8000BA38, "diagnosticMainUpdateBA38", "BL", 0x48123089),
-                (0x8000BA3C, "diagnosticMainUpdateBA3C", "BL", 0x4811F6B9),
-                (0x80160D74, "diagnosticEffectUpdate0", "BL", 0x48001AC5),
-                (0x80160D7C, "diagnosticEffectUpdate1", "BL", 0x48016AF5),
-                (0x80160D84, "diagnosticEffectUpdate2", "BL", 0x4800A621),
-                (0x80160D8C, "diagnosticEffectUpdate3", "BL", 0x4800B139),
-                (0x80160D94, "diagnosticEffectUpdate4", "BL", 0x4800D5ED),
-                (0x80160D9C, "diagnosticEffectUpdate5", "BL", 0x4800DA05),
-                (0x80160DA4, "diagnosticEffectUpdate6", "BL", 0x4800E9D5),
-                (0x80156AE4, "diagnosticEffectTail0", "BL", 0x48016721),
-                (0x80156AF0, "diagnosticEffectTail1", "BL", 0x4BFFE629),
-                (0x80156AF4, "diagnosticEffectTail2", "BL", 0x4BFF915D),
-                (0x80156AF8, "diagnosticEffectTail3", "BL", 0x4BFDDCA5),
-                (0x8012B120, "diagnosticEffectList0", "BL", 0x480420E5),
-                (0x8012B12C, "diagnosticEffectList1", "BL", 0x480420D9),
-                (0x8012B148, "diagnosticEffectList2", "BL", 0x480420BD),
-                (0x80060664, "diagnosticActorUpdate0", "BL", 0x480081A1),
-                (0x80060700, "diagnosticActorUpdate1", "BL", 0x480081E5),
-                (0x80060784, "diagnosticActorUpdate2", "BL", 0x4800821D),
-                (0x80060800, "diagnosticActorUpdate3", "BL", 0x48008289),
-                (0x800608E4, "diagnosticActorUpdate4", "BL", 0x48008335),
-                (0x80060918, "diagnosticActorUpdate5", "BL", 0x4800685D),
-                (0x8006094C, "diagnosticActorUpdate6", "BL", 0x48006955),
-                (0x80060980, "diagnosticActorUpdate7", "BL", 0x48006DD1),
-                (0x800609B0, "diagnosticActorUpdate8", "BL", 0x480068A5),
-                (0x8000BD1C, "diagnosticMainDrawBD1C", "BL", 0x480009E5),
-                (0x8000BD24, "diagnosticMainDrawBD24", "BL", 0x48000741),
-                (0x8000BD2C, "diagnosticMainDrawBD2C", "BL", 0x48000C41),
-                (0x8000BD34, "diagnosticMainDrawBD34", "BL", 0x48000E75),
-                (0x8000BD3C, "diagnosticMainDrawBD3C", "BL", 0x48179671),
-                (0x8000BD44, "diagnosticMainDrawBD44", "BL", 0x48044F29),
-                (0x8000BD58, "diagnosticMainDrawBD58", "BL", 0x48003191),
-                (0x8000BD6C, "diagnosticMainDrawBD6C", "BL", 0x4BFFFE49),
-                (0x8000BDA4, "diagnosticMainDrawBDA4", "BL", 0x481074B9),
-                (0x8000BDC4, "diagnosticMainDrawBDC4", "BL", 0x4BFFBF75),
-                (0x8000BDC8, "diagnosticMainDrawBDC8", "BL", 0x48107505),
-                (0x8000BDDC, "diagnosticMainDrawBDDC", "BL", 0x4BFFF425),
-                (0x8000BDE4, "diagnosticMainDrawBDE4", "BL", 0x4BFFBF55),
-                (0x8000BDE8, "diagnosticMainDrawBDE8", "BL", 0x48107A51),
-                (0x8000BDF0, "diagnosticMainDrawBDF0", "BL", 0x48107685),
-                (0x8000BBC8, "diagnosticNormalDrawBBC8", "BL", 0x4BFFDE91),
-                (0x8000BBCC, "diagnosticNormalDrawBBCC", "BL", 0x4814AF41),
-                (0x8000BBD4, "diagnosticNormalDrawBBD4", "BL", 0x480653D5),
-                (0x8000BBE4, "diagnosticNormalDrawBBE4", "BL", 0x48053AD5),
-                (0x8000BBF4, "diagnosticNormalDrawBBF4", "BL", 0x48053AC5),
-                (0x8000BBF8, "diagnosticNormalDrawBBF8", "BL", 0x48051281),
-                (0x8000BBFC, "diagnosticNormalDrawBBFC", "BL", 0x48052705),
-                (0x8000BC00, "diagnosticNormalDrawBC00", "BL", 0x4800578D),
-                (0x8000BC10, "diagnosticNormalDrawBC10", "BL", 0x48005859),
-                (0x8000BC14, "diagnosticNormalDrawBC14", "BL", 0x480058D1),
-                (0x8000BC18, "diagnosticNormalDrawBC18", "BL", 0x480543ED),
-                (0x8000BC20, "diagnosticNormalDrawBC20", "BL", 0x480545CD),
-                (0x8000BC2C, "diagnosticNormalDrawBC2C", "BL", 0x480545C1),
-                (0x8000BC30, "diagnosticNormalDrawBC30", "BL", 0x48054DDD),
-                (0x8000BC34, "diagnosticNormalDrawBC34", "BL", 0x4814AF91),
-                (0x8000BC3C, "diagnosticNormalDrawBC3C", "BL", 0x4806536D),
-                (0x8000BC44, "diagnosticNormalDrawBC44", "BL", 0x48065365),
-                (0x8000BC48, "diagnosticNormalDrawBC48", "BL", 0x480057C9),
-                (0x8000BC64, "diagnosticNormalDrawBC64", "BL", 0x48005655),
-                (0x8000BC6C, "diagnosticNormalDrawBC6C", "BL", 0x480057FD),
-                (0x8000BC74, "diagnosticNormalDrawBC74", "BL", 0x48051299),
-                (0x8000BC7C, "diagnosticNormalDrawBC7C", "BL", 0x4BFFFDE9),
-                (0x8000BC88, "diagnosticNormalDrawBC88", "BL", 0x48052FAD),
-                (0x8000BC8C, "diagnosticNormalDrawBC8C", "BL", 0x4BFFDDCD),
-                (0x8000BC90, "diagnosticNormalDrawBC90", "BL", 0x4BFFBC6D),
-                (0x8000BC94, "diagnosticNormalDrawBC94", "BL", 0x4805166D),
-                (0x8000BC9C, "diagnosticNormalDrawBC9C", "BL", 0x480326DD),
-                (0x8000BCA4, "diagnosticNormalDrawBCA4", "BL", 0x4BFFF031),
-                (0x8000BCB4, "diagnosticNormalDrawBCB4", "BL", 0x48005605),
-                (0x8000BCB8, "diagnosticNormalDrawBCB8", "BL", 0x480520B1),
-                (0x8000BCBC, "diagnosticNormalDrawBCBC", "BL", 0x4803A511),
-                (0x8000BCC4, "diagnosticNormalDrawBCC4", "BL", 0x480652E5),
-                (0x8000BCC8, "diagnosticNormalDrawBCC8", "BL", 0x48037E91),
-                (0x8000BCD0, "diagnosticNormalDrawBCD0", "BL", 0x480652D9),
-                (0x8000BA78, "diagnosticPerViewDrawBA78", "BL", 0x48051889),
-                (0x8000BA7C, "diagnosticPerViewDrawBA7C", "BL", 0x48054589),
-                (0x8000BA88, "diagnosticPerViewDrawBA88", "BL", 0x481E7D05),
-                (0x8000BA94, "diagnosticPerViewDrawBA94", "BL", 0x48005A51),
-                (0x8000BAA4, "diagnosticPerViewDrawBAA4", "BL", 0x481797D1),
-                (0x8000BAA8, "diagnosticPerViewDrawBAA8", "BL", 0x48054371),
-                (0x8000BAB0, "diagnosticPerViewDrawBAB0", "BL", 0x4805473D),
-                (0x8000BAB4, "diagnosticPerViewDrawBAB4", "BL", 0x4814B111),
-                (0x8000BABC, "diagnosticPerViewDrawBABC", "BL", 0x480654ED),
-                (0x8000BAC0, "diagnosticPerViewDrawBAC0", "BL", 0x4802C0A5),
-                (0x8000BAC4, "diagnosticPerViewDrawBAC4", "BL", 0x480AC9E5),
-                (0x8000BAC8, "diagnosticPerViewDrawBAC8", "BL", 0x481552F5),
-                (0x8000BAD0, "diagnosticPerViewDrawBAD0", "BL", 0x48005A15),
-                (0x8000BAD8, "diagnosticPerViewDrawBAD8", "BL", 0x48054715),
-                (0x8000BAE0, "diagnosticPerViewDrawBAE0", "BL", 0x480544D1),
-                (0x8000BAE4, "diagnosticPerViewDrawBAE4", "BL", 0x4BFFDF75),
-                (0x8000BAE8, "diagnosticPerViewDrawBAE8", "BL", 0x48051819),
-                (0x8000BB00, "diagnosticPerViewDrawBB00", "BL", 0x4BFFCA2D),
-                (0x8000BB04, "diagnosticPerViewDrawBB04", "BL", 0x481552E1),
-                (0x8000BB08, "diagnosticPerViewDrawBB08", "BL", 0x48117719),
-                (0x8000BB0C, "diagnosticPerViewDrawBB0C", "BL", 0x48123001),
-                (0x8000BB10, "diagnosticPerViewDrawBB10", "BL", 0x4811F6C1),
-                (0x8000BB20, "diagnosticPerViewDrawBB20", "BL", 0x48152CD9),
-                (0x8000BB24, "diagnosticPerViewDrawBB24", "BL", 0x48054EE9),
-                (0x8000BB2C, "diagnosticPerViewDrawBB2C", "BL", 0x480546C1),
-                (0x8000BB34, "diagnosticPerViewDrawBB34", "BL", 0x48065475),
-                (0x8000BB38, "diagnosticPerViewDrawBB38", "BL", 0x48000665),
-                (0x8000BB3C, "diagnosticPerViewDrawBB3C", "BL", 0x480517C5),
-                (0x8000BB44, "diagnosticPerViewDrawBB44", "BL", 0x481E7A01),
-                (0x8000BB54, "diagnosticPerViewDrawBB54", "BL", 0x481E7A31),
-                (0x8000BB58, "diagnosticPerViewDrawBB58", "BL", 0x48052DD5),
-                (0x8000BB60, "diagnosticPerViewDrawBB60", "BL", 0x481E79E5),
-                (0x8000BB64, "diagnosticPerViewDrawBB64", "BL", 0x48052A99),
-                (0x8000BB70, "diagnosticPerViewDrawBB70", "BL", 0x4BFFC9BD),
-                (0x8000BB74, "diagnosticPerViewDrawBB74", "BL", 0x48005A71),
-                (0x8000BB84, "diagnosticPerViewDrawBB84", "BL", 0x48179715),
-                (0x8000BB8C, "diagnosticPerViewDrawBB8C", "BL", 0x4806541D),
-                (0x8000BB9C, "diagnosticPerViewDrawBB9C", "BL", 0x481E4061),
                 (0x8000B360, "diagnosticOrthoReset", "BL", 0x4BFFC59D),
                 (0x8000B5EC, "diagnosticPreMainUpdate", "BL", 0x4BFFF6B9),
                 (0x8000B608, "diagnosticPostMainUpdate", "BL", 0x4BFFC9FD),
@@ -275,12 +131,15 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
             "kSnapshotBase = SUSAMUNE_MEM2_SNAPSHOT_PPC_BASE", STATE_SOURCE
         )
         self.assertIn(
-            "kSnapshotCapacity = SUSAMUNE_MEM2_SNAPSHOT_SIZE", STATE_SOURCE
+            "kSnapshotStorageSize = SUSAMUNE_MEM2_SNAPSHOT_SIZE", STATE_SOURCE
+        )
+        self.assertIn(
+            "kSnapshotStorageSize - kModelCensusScratchSize", STATE_SOURCE
         )
         self.assertIn("kHeapMetadataStart = 0x3Cu", STATE_SOURCE)
         self.assertIn("kHeapMetadataEnd = 0x84u", STATE_SOURCE)
         self.assertIn("kExpHeapAlignment = 16u", STATE_SOURCE)
-        self.assertIn("kSnapshotVersion = 14u", STATE_SOURCE)
+        self.assertIn("kSnapshotVersion = 15u", STATE_SOURCE)
         self.assertIn("kTransitionHeaderStateStart = 0x803985D4u", STATE_SOURCE)
         self.assertIn("kTransitionHeaderStateEnd = 0x803985E8u", STATE_SOURCE)
         self.assertIn("kTransitionTailStateStart = 0x80398764u", STATE_SOURCE)
@@ -380,6 +239,18 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
             STATE_SOURCE,
         )
         self.assertIn(
+            "kSceneEffectManagerStateStart = 0x803CD1F4u", STATE_SOURCE
+        )
+        self.assertIn(
+            "kSceneEffectManagerStateEnd = 0x803CD4C8u", STATE_SOURCE
+        )
+        self.assertIn(
+            "{kSceneEffectManagerStateStart,\n"
+            "     kSceneEffectManagerStateEnd - "
+            "kSceneEffectManagerStateStart}",
+            STATE_SOURCE,
+        )
+        self.assertIn(
             "{kAnimatedModelOwnerStateStart,\n"
             "     kAnimatedModelOwnerStateEnd - kAnimatedModelOwnerStateStart}",
             STATE_SOURCE,
@@ -408,10 +279,10 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn("kGameSbss0End = 0x804A0C90u", STATE_SOURCE)
         self.assertIn("kGameSbss1Start = 0x804A0CB0u", STATE_SOURCE)
         self.assertIn("kGameSbss1End = 0x804A1D10u", STATE_SOURCE)
-        self.assertIn("kStateStaticsSize == 0x15DD8u", STATE_SOURCE)
-        self.assertIn("kCameraObjectStateOffset == 0x15F20u", STATE_SOURCE)
+        self.assertIn("kStateStaticsSize == 0x160ACu", STATE_SOURCE)
+        self.assertIn("kCameraObjectStateOffset == 0x161F4u", STATE_SOURCE)
         self.assertIn("kCameraObjectStateSize == 0x300u", STATE_SOURCE)
-        self.assertIn("kHeapDataOffset == 0x16220u", STATE_SOURCE)
+        self.assertIn("kHeapDataOffset == 0x16500u", STATE_SOURCE)
         self.assertIn("roomActorCount > kRoomActorCapacity", STATE_SOURCE)
         self.assertIn(
             "readWord(kRoomActorTableStart + i * sizeof(u32))", STATE_SOURCE
@@ -570,7 +441,7 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn("Susamune: epoch mask=%08X first=%s", KERNEL_CRASH_SOURCE)
         self.assertIn("LMEpochFieldName(mask)", KERNEL_CRASH_SOURCE)
         self.assertIn(
-            '"LM STATE X0.3.25 F:%s C:%s H:%s X%02lX"', DIAG_SOURCE
+            '"LM STATE X0.3.26 F:%s C:%s H:%s X%02lX"', DIAG_SOURCE
         )
         self.assertIn("LMState::crossRoomGuardCode()", DIAG_SOURCE)
         self.assertIn(
@@ -598,13 +469,28 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn('return "HEAD1";', STATE_SOURCE)
         self.assertIn('return "HEAD2";', STATE_SOURCE)
         self.assertIn('"V:%s S%lu>L%lu -%lu +%lu F%lu/%lu"', DIAG_SOURCE)
-        self.assertIn("kVolumeRemovedSlots = 3u", STATE_SOURCE)
-        self.assertIn("kVolumeAddedSlots = 3u", STATE_SOURCE)
+        self.assertIn("kVolumeRemovedSlots = 8u", STATE_SOURCE)
+        self.assertIn("kVolumeAddedSlots = 8u", STATE_SOURCE)
+        self.assertIn("kVolumeDisplayedPerKind = 3u", STATE_SOURCE)
+        self.assertIn("2u * kVolumeDisplayedPerKind", STATE_SOURCE)
+        self.assertIn("kModelChangeSlots = 16u", STATE_SOURCE)
+        self.assertIn(
+            "kModelChangeSlots >=\n"
+            "                      kVolumeRemovedSlots + kVolumeAddedSlots",
+            STATE_SOURCE,
+        )
         self.assertIn('"V%s%s %s/%s O%08lX R%08lX %luB"', DIAG_SOURCE)
         self.assertIn('"VC %08lX>%08lX D%08lX>%08lX"', DIAG_SOURCE)
         self.assertIn("guardedCrossRoomRestoreAllowed", STATE_SOURCE)
         self.assertIn("repairSavedVolumeList", STATE_SOURCE)
-        self.assertIn("kSnapshotVersion = 14u", STATE_SOURCE)
+        self.assertIn("kSnapshotVersion = 15u", STATE_SOURCE)
+        display = STATE_SOURCE.split(
+            "const VolumeDescriptor *volumeChangeEntry", 1
+        )[1].split("u32 volumeChangeObject", 1)[0]
+        self.assertIn("displayIndex < kVolumeDisplayedPerKind", display)
+        self.assertIn(
+            "displayIndex - kVolumeDisplayedPerKind", display
+        )
 
     def test_resource_manager_epoch_census_is_bounded(self) -> None:
         self.assertIn("kResourceMapBase = 0x80398C50u", STATE_SOURCE)
@@ -636,6 +522,33 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn("kModelRegistryEntrySize = 0x40u", STATE_SOURCE)
         self.assertIn("kModelTableSize == 0x3538u", STATE_SOURCE)
         self.assertIn("kModelRegistrySize == 0x4180u", STATE_SOURCE)
+        self.assertIn("kModelCensusRecordSize == 0x76CCu", STATE_SOURCE)
+        self.assertIn("kModelCensusScratchSize == 0x76E0u", STATE_SOURCE)
+        self.assertIn(
+            "kModelCensusScratchSize < kSnapshotStorageSize", STATE_SOURCE
+        )
+        self.assertIn("(kModelCensusScratchSize & 31u) == 0u", STATE_SOURCE)
+        self.assertIn("kHeapDataOffset < kSnapshotCapacity", STATE_SOURCE)
+        self.assertIn("kModelTableSnapshotOffset == 0xB50u", STATE_SOURCE)
+        self.assertIn("kModelRegistrySnapshotOffset == 0x4088u", STATE_SOURCE)
+        self.assertIn(
+            "kSavedModelCensusMetadataAddress +\n"
+            "                          kModelCensusMetadataSize ==\n"
+            "                      SUSAMUNE_MEM2_CFG_PPC_BASE",
+            STATE_SOURCE,
+        )
+        self.assertNotIn("ModelCensus sSavedModelCensus", STATE_SOURCE)
+        self.assertNotIn("ModelCensus sLiveModelCensus", STATE_SOURCE)
+        self.assertIn("const ModelCensusView sSavedModelCensus", STATE_SOURCE)
+        self.assertIn("const ModelCensusView sLiveModelCensus", STATE_SOURCE)
+        self.assertIn(
+            "clearWords(sSavedModelCensus.metadata, kModelCensusMetadataSize)",
+            STATE_SOURCE,
+        )
+        self.assertIn(
+            "clearWords(sLiveModelCensus.metadata, kModelCensusRecordSize)",
+            STATE_SOURCE,
+        )
         self.assertEqual(0x803435AC + 262 * 0x34, 0x80346AE4)
         self.assertEqual(0x8037EC70 + 262 * 0x40, 0x80382DF0)
         self.assertIn("bool captureModelCensus", STATE_SOURCE)
@@ -645,6 +558,13 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn("modelEntryWord(saved, i, 0x08u)", STATE_SOURCE)
         self.assertIn("diffModelCensus(sSavedModelCensus", STATE_SOURCE)
         self.assertIn("commitSavedModelCensus(header->generation);", STATE_SOURCE)
+        self.assertIn(
+            "tableCopy != sLiveModelCensus.metadata->signature", STATE_SOURCE
+        )
+        self.assertIn(
+            "registryCopy != sLiveModelCensus.metadata->registrySignature",
+            STATE_SOURCE,
+        )
         self.assertIn('return "P";', STATE_SOURCE)
         self.assertIn('return "R";', STATE_SOURCE)
         self.assertIn('return "B";', STATE_SOURCE)
@@ -679,7 +599,7 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
                       STATE_SOURCE)
         self.assertIn("kModelRegistryOutputStateEnd = 0x803E3CF8u",
                       STATE_SOURCE)
-        self.assertIn("kSnapshotVersion = 14u", STATE_SOURCE)
+        self.assertIn("kSnapshotVersion = 15u", STATE_SOURCE)
 
     def test_camera_state_tracks_persistent_views_safely(self) -> None:
         self.assertIn("kCameraObjectPointerTable = 0x80399BE0u", STATE_SOURCE)
@@ -836,22 +756,35 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn("postLoadMilestone(0xA2u);", DIAG_SOURCE)
         self.assertIn("postLoadDetail(0xA4u", DIAG_SOURCE)
         self.assertIn("postLoadMilestone(0xA6u);", DIAG_SOURCE)
-        self.assertIn("0xB0u, 0xB1u", DIAG_SOURCE)
-        self.assertIn("0xC0u, 0xC1u", DIAG_SOURCE)
-        self.assertIn("0xD0u, 0xD1u", DIAG_SOURCE)
-        self.assertIn("postLoadDetail(0xE0u, site, target);", DIAG_SOURCE)
-        self.assertIn("postLoadDetail(0xE1u, site, target);", DIAG_SOURCE)
         self.assertIn("postLoadDetail(0xE2u", DIAG_SOURCE)
         self.assertIn("postLoadDetail(0xE3u", DIAG_SOURCE)
         self.assertIn("postLoadDetail(0xF0u", DIAG_SOURCE)
         self.assertIn("postLoadDetail(0xF1u", DIAG_SOURCE)
         self.assertNotIn("diagnosticAudioTailB628", DIAG_SOURCE)
-        self.assertEqual(DIAG_SOURCE.count("DEFINE_UPDATE_CALL(diagnostic"), 48)
-        self.assertEqual(
-            DIAG_SOURCE.count("DEFINE_ACTOR_UPDATE_CALL(diagnostic"), 9
+
+    def test_verbose_trace_wrappers_are_pruned(self) -> None:
+        removed_prefixes = (
+            "diagnosticMainUpdate",
+            "diagnosticEffect",
+            "diagnosticActorUpdate",
+            "diagnosticMainDraw",
+            "diagnosticNormalDraw",
+            "diagnosticPerViewDraw",
         )
-        self.assertIn("postLoadDetail(0xF2u, descriptor, a0)", DIAG_SOURCE)
-        self.assertIn("postLoadDetail(0xF3u, descriptor, vtable)", DIAG_SOURCE)
+        self.assertEqual(lm_diag.mod_write_count, 21)
+        self.assertFalse(
+            any(
+                entry["sym"].startswith(removed_prefixes)
+                for entry in lm_diag.patches
+            )
+        )
+        self.assertNotIn("DEFINE_UPDATE_CALL", DIAG_SOURCE)
+        self.assertNotIn("DEFINE_ACTOR_UPDATE_CALL", DIAG_SOURCE)
+        self.assertNotIn("DEFINE_DRAW_CALL", DIAG_SOURCE)
+        self.assertNotIn("roomActorIndex(", DIAG_SOURCE)
+        self.assertIn("animatedModelControllerSafe(", DIAG_SOURCE)
+        self.assertIn("diagnosticAnimatedModelPoolUpdate", DIAG_SOURCE)
+        self.assertIn("diagnosticAnimatedModelControllerUpdate", DIAG_SOURCE)
 
     def test_post_load_trace_spans_multiple_restored_frames(self) -> None:
         self.assertIn("kPostLoadTraceFrameLimit = 8u", STATE_SOURCE)

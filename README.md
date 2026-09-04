@@ -6,7 +6,7 @@ Mansion (`GLMJ01`).
 
 ## Current status
 
-`Full-State Experimental 0.3.25` is the current hardware-testable state build.
+`Full-State Experimental 0.3.26` is the current hardware-testable state build.
 
 - The custom Nintendont launcher accepts only the verified Japanese `GLMJ01`
   revision-0 executable for injection.
@@ -22,7 +22,7 @@ Mansion (`GLMJ01`).
   heap pointers, room/door visibility masks, the complete room event/text
   interpreter and request, the room actor-pointer table, the fixed
   room-streamer and model-resource tables, the active-event bitmap, the
-  fixed scene-effect controller/list state,
+  fixed scene-effect manager and controller/list state,
   mounted-volume list header, and libc RNG state. The fade controller's
   embedded `J2DPicture` remains live;
   the three persistent camera-view objects receive a guarded sidecar only if
@@ -43,19 +43,17 @@ Mansion (`GLMJ01`).
   journals. A successful save starts the next generation; every phase the ARM
   observes afterward is synced without copying the MEM2 snapshot.
 - State requests run after LM's complete framebuffer/retrace routine, matching
-  Moonshine's proven post-draw timing. Additional journal markers split the
-  first restored draw into matrix, scene-callback, and projection stages, then
-  identify the exact direct renderer call if the callback does not return.
+  Moonshine's proven post-draw timing. A compact journal spine brackets the
+  first restored draw, main update, audio tail, presenter, and loop lifecycle.
 - Post-load tracing records eight complete restored frames, then keeps a
   low-rate two-minute tail. A successful save during that tail refreshes its
   deadline. Stick movement beyond the diagnostic deadzone or any button change
   now traces the current and following `MAIN GAME` updates; a fresh A-button
   press additionally
   opens a 240-frame door watch. Changes in room, scene, streaming, resource, or
-  archive state re-arm exact tracing for two updates. An armed trace continues
-  through effect and room-actor passes, the fade controller, audio callbacks,
-  draw, presenter, and loop tail so a delayed movement failure has an exact
-  last completed call.
+  archive state re-arm the retained lifecycle trace for two updates. The 144
+  per-call probes used to isolate the `0.3.25` failure are removed from this
+  build now that their target manager is captured.
 - Cross-room checks retain a complete 22-field epoch mask plus the saved and
   live values of the highest-priority mismatch on both the overlay and in
   `/ndebug.log`.
@@ -91,17 +89,26 @@ Mansion (`GLMJ01`).
   controller state at `0x803CE0F0-0x803CEB00`. Its list sentinels, pointer
   vectors, and active counts now rewind with their gameplay-heap nodes; the
   following destructor and asynchronous queue records remain live.
+- Snapshot format 15, introduced by `0.3.26`, adds the adjacent scene-effect
+  manager at `0x803CD1F4-0x803CD4C8`. The `0.3.25` attempt journal isolated its
+  stale heap-node anchor as the repeatable delayed walking failure. Model-census
+  scratch now lives at the protected end of MEM2 instead of duplicating 60,824
+  bytes in the injected payload; removing the resolved per-call probes reduces
+  that payload from 140,952 to 46,104 bytes while retaining the HUD, crash
+  capture, journals, and animated-model repair hooks.
 
 Controls are D-pad Left to save and D-pad Right to load. Confirm a same-room
 restore first. For the focused cross-room test, save outside the intended foyer
 door, enter it and wait until Luigi is controllable, load back outside, then
 touch that same door again. Report whether both the door animation and room
-load complete. `0.3.25` may attempt this restore instead of returning `EPOCH`;
+load complete. `0.3.26` may attempt this restore instead of returning `EPOCH`;
 a successful load is evidence for this specific resource shape, not general
-cross-room support. Any different room, floor, transition, or asynchronous
-state is expected to refuse safely. This remains a crash-risk feasibility
-test. Audio may remain silent after a save or load until game logic starts the
-room sequence again.
+cross-room support. A larger transition can now track up to eight removed and
+eight added archives, but it still must pass every ownership, ordering,
+resource, and model-state predicate. An unsupported or asynchronous state is
+expected to refuse safely. This remains a crash-risk feasibility test. Audio
+may remain silent after a save or load until game logic starts the room
+sequence again.
 
 The inherited Sunshine payload remains in the repository as porting reference.
 Its build targets are hidden unless CMake is explicitly configured with
@@ -138,7 +145,7 @@ The build emits a version-labelled tester package plus a stable compatibility
 name:
 
 ```text
-build-lm-diag/Moonshine-Luigis-Mansion-Full-State-Experimental-0.3.25.zip
+build-lm-diag/Moonshine-Luigis-Mansion-Full-State-Experimental-0.3.26.zip
 build-lm-diag/moonshine_luigis_mansion_launcher.zip
 ```
 
@@ -162,7 +169,7 @@ disc or ISO.
 
 Back up any real memory-card data, install the four packaged files under
 `apps/moonshine_luigis_mansion/`, and launch a clean revision-0 GLMJ01 image.
-The overlay must start with `LM STATE X0.3.25`; wait until `F`, `C`, `H`, and
+The overlay must start with `LM STATE X0.3.26`; wait until `F`, `C`, `H`, and
 `G` are `OK` and `ST` is at least 3. The trailing `X` byte reports the guarded
 cross-room path: `X00` means it has not been attempted, `XA0` means it passed,
 and `X01` through `X08` identify the refusal stage: epoch mask, saved-census
