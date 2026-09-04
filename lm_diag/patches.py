@@ -78,6 +78,24 @@ patches = [
         "type": PatchType.BL,
         "expected": 0x4E800021,
     },
+    # Keep LM's transient-model pool on its retail update path, but validate
+    # each active slot first. Cross-epoch cosmetic slots are retired before
+    # their model descriptor can be dereferenced by the door-effect update.
+    {
+        "lmj": 0x800111A8,
+        "sym": "diagnosticAnimatedModelPoolUpdate",
+        "type": PatchType.BL,
+        "expected": 0x480155A9,
+    },
+    # Validate the selected model/animation at the exact retail callsite. If
+    # its relocated data is temporarily absent, skip only this controller
+    # update and allow the resource to recover on a later frame.
+    {
+        "lmj": 0x8002684C,
+        "sym": "diagnosticAnimatedModelControllerUpdate",
+        "type": PatchType.BL,
+        "expected": 0x4BFF8239,
+    },
     # Trace every direct retail call in MAIN GAME's update dispatcher.  The
     # paired wrappers identify the first subsystem that does not return after
     # a cross-room rewind while preserving the original call arguments.

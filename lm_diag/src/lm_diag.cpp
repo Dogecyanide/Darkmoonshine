@@ -31,6 +31,10 @@ const u32 kLMPostMainUpdateAddr = 0x80008004u;
 const u32 kLMTransitionStateAddr = 0x803985D4u;
 const u32 kLMMainSceneStepAddr = 0x8000B248u;
 const u32 kLMMainDrawStateAddr = 0x804A0C44u;
+const u32 kLMAnimatedModelPoolGlobal = 0x804A0E48u;
+const u32 kLMAnimatedModelControllerPoolGlobal = 0x804A0E4Cu;
+const u32 kLMAnimatedModelPoolUpdateAddr = 0x80026750u;
+const u32 kLMAnimatedModelControllerUpdateAddr = 0x8001EA84u;
 const u32 kLMDefaultOrthoViewAddr = 0x800078FCu;
 const u32 kGXCopyDispAddr = 0x801F045Cu;
 const u32 kGXDrawDoneAddr = 0x801EF5F0u;
@@ -56,6 +60,11 @@ const u32 kXfbRowBytes = kXfbWidth * 2u;
 const u32 kXfbSize = kXfbRowBytes * kXfbHeight;
 const u16 kPanelTop = 8u;      // JUT logical rows: 16 physical XFB rows.
 const u32 kHeartbeatTop = 16u; // Raw YUYV path uses physical XFB rows.
+const u32 kAnimatedModelSlotCount = 80u;
+const u32 kAnimatedModelSlotSize = 0x11Cu;
+const u32 kAnimatedModelControllerSize = 0x318u;
+const u32 kAnimatedModelPrimaryCapacity = 16u;
+const u32 kAnimatedModelSecondaryCapacity = 10u;
 const u32 kCanary[4] = {
     0x474C4D4Au,  // GLMJ
     0x4D454D31u,  // MEM1
@@ -88,6 +97,7 @@ typedef void (*DirectPrintDrawStringFn)(void *, u16, u16, const char *, ...);
 typedef u32 (*ExpHeapSizeFn)(void *);
 typedef bool (*ExpHeapCheckFn)(void *);
 typedef u32 (*RetailCall8Fn)(u32, u32, u32, u32, u32, u32, u32, u32);
+typedef void (*RetailCall4Fn)(u32, u32, u32, u32);
 
 struct HeapSample {
     u32 pointer;
@@ -118,6 +128,10 @@ inline u32 readWord(u32 address) {
 
 inline u8 readByte(u32 address) {
     return *reinterpret_cast<volatile u8 *>(address);
+}
+
+inline void writeWord(u32 address, u32 value) {
+    *reinterpret_cast<volatile u32 *>(address) = value;
 }
 
 inline bool isMem1Range(u32 address, u32 size) {
@@ -271,7 +285,7 @@ void drawPanel(void *directPrint, void *xfb, const HeapSample &system,
         directPrint, 0, kPanelTop, 320, panelHeight);
     reinterpret_cast<DirectPrintDrawStringFn>(kDirectPrintDrawStringAddr)(
         directPrint, 2, kPanelTop + 2u,
-        "LM STATE X0.3.21 F:%s C:%s H:%s X%02lX",
+        "LM STATE X0.3.22 F:%s C:%s H:%s X%02lX",
         status(sFloorObserved, sFloorOk), status(sCanaryReady, sCanaryOk),
         status(sHeapCheckReady, sHeapCheckOk), LMState::crossRoomGuardCode());
     reinterpret_cast<DirectPrintDrawStringFn>(kDirectPrintDrawStringAddr)(
@@ -507,6 +521,149 @@ extern "C" void diagnosticSceneDraw(void *scene) {
     // Retail deliberately leaves sCurScene in r3 for this dynamic call.
     reinterpret_cast<VoidPtrFn>(callback)(scene);
     LMState::postLoadDetail(0xA5u, readWord(kLMMainDrawStateAddr), callback);
+}
+
+bool animatedModelControllerSafe(u32 slot, u32 controller, u32 *fault) {
+    const u32 controllerFlags = readWord(controller);
+    const u32 primaryCount = readWord(controller + 0x120u);
+
+    // Retail treats these two lazy-controller shapes as intentional no-ops.
+    if (!(controllerFlags & 1u) && primaryCount == 0u) {
+        return true;
+    }
+    if (primaryCount == 0u || primaryCount > kAnimatedModelPrimaryCapacity) {
+        *fault = primaryCount;
+        return false;
+    }
+
+    const u32 primaryIndex = readWord(controller + 0x11Cu);
+    if (primaryIndex >= primaryCount) {
+        *fault = primaryIndex;
+        return false;
+    }
+    const u32 model = readWord(controller + 4u + primaryIndex * sizeof(u32));
+    if (!isMem1Range(model, 0x40u)) {
+        *fault = model;
+        return false;
+    }
+    if (!(controllerFlags & 1u) && readByte(model) != 2u) {
+        return true;
+    }
+
+    const u32 descriptor = readWord(model + 0x3Cu);
+    if (!isMem1Range(descriptor, 0x30u)) {
+        *fault = descriptor;
+        return false;
+    }
+
+    const u32 secondaryCount = readWord(controller + 0x124u);
+    if (secondaryCount > kAnimatedModelSecondaryCapacity) {
+        *fault = secondaryCount;
+        return false;
+    }
+    if (secondaryCount != 0u) {
+        const s32 secondaryIndex = static_cast<s8>(readByte(slot + 0x38u));
+        if (secondaryIndex < 0 ||
+            static_cast<u32>(secondaryIndex) >= secondaryCount) {
+            *fault = static_cast<u32>(secondaryIndex);
+            return false;
+        }
+        const u32 animation =
+            readWord(controller + 0x44u +
+                     static_cast<u32>(secondaryIndex) * sizeof(u32));
+        if (!isMem1Range(animation, 0x14u)) {
+            *fault = animation;
+            return false;
+        }
+    }
+
+    // Once initialised, retail unconditionally uses this matrix-output area.
+    const u32 output = readWord(controller + 0x128u);
+    if ((controllerFlags & 1u) && !isMem1Range(output, 0x30u)) {
+        *fault = output;
+        return false;
+    }
+    return true;
+}
+
+// The heap pool and its fixed owner registry must describe the same epoch.
+// Reject a broken entry/controller association before retail enters the slot;
+// its post-controller audio step also assumes this mapping is valid.
+extern "C" void diagnosticAnimatedModelPoolUpdate() {
+    const u32 pool = readWord(kLMAnimatedModelPoolGlobal);
+    const u32 controllers = readWord(kLMAnimatedModelControllerPoolGlobal);
+    if (!isMem1Range(pool,
+                     kAnimatedModelSlotCount * kAnimatedModelSlotSize) ||
+        !isMem1Range(controllers,
+                     kAnimatedModelSlotCount *
+                         kAnimatedModelControllerSize)) {
+        LMState::postLoadDetail(0xE4u, pool, controllers);
+        return;
+    }
+
+    for (u32 index = 0; index < kAnimatedModelSlotCount; ++index) {
+        const u32 slot = pool + index * kAnimatedModelSlotSize;
+        const u32 flags = readWord(slot + 0x3Cu);
+        if (!(flags & 2u)) {
+            continue;
+        }
+
+        const u32 controller = readWord(slot + 0x70u);
+        if (controller == 0u) {
+            continue;
+        }
+        const u32 expectedController =
+            controllers + index * kAnimatedModelControllerSize;
+        if (controller != expectedController) {
+            LMState::postLoadDetail(0xE4u, index, controller);
+            writeWord(slot + 0x3Cu, flags & ~3u);
+        }
+    }
+
+    reinterpret_cast<VoidFn>(kLMAnimatedModelPoolUpdateAddr)();
+}
+
+// This is the final call before LM consumes the selected model's relocated
+// joint table. Suppressing only that call lets an asynchronously repaired
+// cosmetic resource recover on a later frame without destroying its owner.
+extern "C" void diagnosticAnimatedModelControllerUpdate(u32 controller,
+                                                         u32 slot,
+                                                         u32 animationIndex,
+                                                         u32 frame) {
+    const u32 pool = readWord(kLMAnimatedModelPoolGlobal);
+    const u32 controllers = readWord(kLMAnimatedModelControllerPoolGlobal);
+    const bool poolValid =
+        isMem1Range(pool, kAnimatedModelSlotCount * kAnimatedModelSlotSize);
+    const bool controllersValid =
+        isMem1Range(controllers, kAnimatedModelSlotCount *
+                                    kAnimatedModelControllerSize);
+    const u32 slotOffset = slot - pool;
+    const bool slotValid =
+        poolValid && slot >= pool && slotOffset % kAnimatedModelSlotSize == 0u &&
+        slotOffset / kAnimatedModelSlotSize < kAnimatedModelSlotCount;
+    if (!slotValid || !controllersValid) {
+        LMState::postLoadDetail(0xE5u, slot, controller);
+        return;
+    }
+
+    const u32 index = slotOffset / kAnimatedModelSlotSize;
+    const u32 expectedController =
+        controllers + index * kAnimatedModelControllerSize;
+    if (controller != expectedController) {
+        // The caller reloads +0x70 and consumes +0x314 after we return.
+        writeWord(slot + 0x70u, expectedController);
+        writeWord(slot + 0x3Cu, readWord(slot + 0x3Cu) & ~3u);
+        LMState::postLoadDetail(0xE5u, index, controller);
+        return;
+    }
+
+    u32 fault = 0u;
+    if (!animatedModelControllerSafe(slot, controller, &fault)) {
+        LMState::postLoadDetail(0xE5u, index, fault);
+        return;
+    }
+    reinterpret_cast<RetailCall4Fn>(kLMAnimatedModelControllerUpdateAddr)(
+        controller, slot, animationIndex, frame);
 }
 
 // MAIN GAME's first update after an accepted room rewind is the remaining

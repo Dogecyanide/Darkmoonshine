@@ -50,6 +50,18 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
                 (0x8000B268, "diagnosticFirstPosMatrix", "BL", 0x481E99C9),
                 (0x8000B34C, "diagnosticLastNrmMatrix", "BL", 0x481E9921),
                 (0x8000B35C, "diagnosticSceneDraw", "BL", 0x4E800021),
+                (
+                    0x800111A8,
+                    "diagnosticAnimatedModelPoolUpdate",
+                    "BL",
+                    0x480155A9,
+                ),
+                (
+                    0x8002684C,
+                    "diagnosticAnimatedModelControllerUpdate",
+                    "BL",
+                    0x4BFF8239,
+                ),
                 (0x8000B930, "diagnosticMainUpdateB930", "BL", 0x48003501),
                 (0x8000B934, "diagnosticMainUpdateB934", "BL", 0x4804BD51),
                 (0x8000B938, "diagnosticMainUpdateB938", "BL", 0x48000D19),
@@ -245,7 +257,7 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn("kHeapMetadataStart = 0x3Cu", STATE_SOURCE)
         self.assertIn("kHeapMetadataEnd = 0x84u", STATE_SOURCE)
         self.assertIn("kExpHeapAlignment = 16u", STATE_SOURCE)
-        self.assertIn("kSnapshotVersion = 10u", STATE_SOURCE)
+        self.assertIn("kSnapshotVersion = 11u", STATE_SOURCE)
         self.assertIn("kTransitionHeaderStateStart = 0x803985D4u", STATE_SOURCE)
         self.assertIn("kTransitionHeaderStateEnd = 0x803985E8u", STATE_SOURCE)
         self.assertIn("kTransitionTailStateStart = 0x80398764u", STATE_SOURCE)
@@ -296,6 +308,11 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
             "     kParticleManagerStateEnd - kParticleManagerStateStart}",
             STATE_SOURCE,
         )
+        self.assertIn(
+            "{kAnimatedModelOwnerStateStart,\n"
+            "     kAnimatedModelOwnerStateEnd - kAnimatedModelOwnerStateStart}",
+            STATE_SOURCE,
+        )
         self.assertIn("bool particleManagerValid", STATE_SOURCE)
         self.assertIn("Gate::Particle", STATE_SOURCE)
         self.assertIn('return "PTCL";', STATE_SOURCE)
@@ -320,10 +337,10 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn("kGameSbss0End = 0x804A0C90u", STATE_SOURCE)
         self.assertIn("kGameSbss1Start = 0x804A0CB0u", STATE_SOURCE)
         self.assertIn("kGameSbss1End = 0x804A1D10u", STATE_SOURCE)
-        self.assertIn("kStateStaticsSize == 0x13AE4u", STATE_SOURCE)
-        self.assertIn("kCameraObjectStateOffset == 0x13C2Cu", STATE_SOURCE)
+        self.assertIn("kStateStaticsSize == 0x141B0u", STATE_SOURCE)
+        self.assertIn("kCameraObjectStateOffset == 0x142F8u", STATE_SOURCE)
         self.assertIn("kCameraObjectStateSize == 0x300u", STATE_SOURCE)
-        self.assertIn("kHeapDataOffset == 0x13F40u", STATE_SOURCE)
+        self.assertIn("kHeapDataOffset == 0x14600u", STATE_SOURCE)
         self.assertIn("captureStaticRanges();", STATE_SOURCE)
         self.assertIn("restoreStaticRanges();", STATE_SOURCE)
         self.assertIn("storeStaticRanges();", STATE_SOURCE)
@@ -335,6 +352,46 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
             STATE_SOURCE.index("header->magic = kSnapshotMagic"),
         )
         self.assertNotIn("copyWords(reinterpret_cast<void *>(kMem1Start)", STATE_SOURCE)
+
+    def test_animated_model_owner_and_update_guard_contract(self) -> None:
+        self.assertIn(
+            "kAnimatedModelOwnerStateStart = 0x803C26C8u", STATE_SOURCE
+        )
+        self.assertIn(
+            "kAnimatedModelOwnerStateEnd = 0x803C2D94u", STATE_SOURCE
+        )
+        self.assertIn(
+            "kAnimatedModelOwnerStateEnd -\n"
+            "                      kAnimatedModelOwnerStateStart ==\n"
+            "                  0x6CCu",
+            STATE_SOURCE,
+        )
+        self.assertIn(
+            "const u32 kLMAnimatedModelPoolUpdateAddr = 0x80026750u",
+            DIAG_SOURCE,
+        )
+        self.assertIn(
+            "const u32 kLMAnimatedModelControllerUpdateAddr = 0x8001EA84u",
+            DIAG_SOURCE,
+        )
+        pool_guard = DIAG_SOURCE.split(
+            'extern "C" void diagnosticAnimatedModelPoolUpdate()', 1
+        )[1].split("// This is the final call", 1)[0]
+        self.assertIn("controller != expectedController", pool_guard)
+        self.assertIn("writeWord(slot + 0x3Cu, flags & ~3u);", pool_guard)
+        self.assertIn(
+            "reinterpret_cast<VoidFn>(kLMAnimatedModelPoolUpdateAddr)();",
+            pool_guard,
+        )
+        controller_guard = DIAG_SOURCE.split(
+            'extern "C" void diagnosticAnimatedModelControllerUpdate', 1
+        )[1].split("// MAIN GAME", 1)[0]
+        self.assertIn("animatedModelControllerSafe", controller_guard)
+        self.assertIn("LMState::postLoadDetail(0xE5u", controller_guard)
+        self.assertIn(
+            "reinterpret_cast<RetailCall4Fn>(kLMAnimatedModelControllerUpdateAddr)",
+            controller_guard,
+        )
 
     def test_state_controls_and_resource_gates(self) -> None:
         self.assertIn("kDPadLeft = 0x0001u", STATE_SOURCE)
@@ -412,7 +469,7 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn("Susamune: epoch mask=%08X first=%s", KERNEL_CRASH_SOURCE)
         self.assertIn("LMEpochFieldName(mask)", KERNEL_CRASH_SOURCE)
         self.assertIn(
-            '"LM STATE X0.3.21 F:%s C:%s H:%s X%02lX"', DIAG_SOURCE
+            '"LM STATE X0.3.22 F:%s C:%s H:%s X%02lX"', DIAG_SOURCE
         )
         self.assertIn("LMState::crossRoomGuardCode()", DIAG_SOURCE)
         self.assertIn(
@@ -446,7 +503,7 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn('"VC %08lX>%08lX D%08lX>%08lX"', DIAG_SOURCE)
         self.assertIn("guardedCrossRoomRestoreAllowed", STATE_SOURCE)
         self.assertIn("repairSavedVolumeList", STATE_SOURCE)
-        self.assertIn("kSnapshotVersion = 10u", STATE_SOURCE)
+        self.assertIn("kSnapshotVersion = 11u", STATE_SOURCE)
 
     def test_resource_manager_epoch_census_is_bounded(self) -> None:
         self.assertIn("kResourceMapBase = 0x80398C50u", STATE_SOURCE)
@@ -521,7 +578,7 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
                       STATE_SOURCE)
         self.assertIn("kModelRegistryOutputStateEnd = 0x803E3CF8u",
                       STATE_SOURCE)
-        self.assertIn("kSnapshotVersion = 10u", STATE_SOURCE)
+        self.assertIn("kSnapshotVersion = 11u", STATE_SOURCE)
 
     def test_camera_state_tracks_persistent_views_safely(self) -> None:
         self.assertIn("kCameraObjectPointerTable = 0x80399BE0u", STATE_SOURCE)

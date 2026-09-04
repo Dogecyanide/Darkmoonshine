@@ -14,7 +14,7 @@ unmodified.
 The overlay rows are:
 
 ```text
-LM STATE X0.3.21 F:<floor> C:<canary> H:<heap check> X<cross-room guard>
+LM STATE X0.3.22 F:<floor> C:<canary> H:<heap check> X<cross-room guard>
 S:<state status> ST<stable frames> SZ<snapshot KiB> G:<gate> <gate value>
 E:<first epoch field> M<mismatch mask> <saved value>><live value>
 V:<topology> S<saved count>>L<live count> -<removed> +<added> F<save>/<live fault>
@@ -213,6 +213,19 @@ older MEM2 slot from being mistaken for this layout. `G:PTCL` refuses state
 capture if any pool is outside that heap, a fixed sentinel drifts, or a pool
 capacity/count is implausible.
 
+Version `0.3.22` adds GLMJ01's fixed transient animated-model owner registry
+at `803C26C8-803C2D94`. Its 15 owner rows point into an 80-slot model pool in
+the gameplay heap, so restoring only the heap can leave future cleanup owning
+saved slots. The registry now rewinds with those slots. Before the retail
+pool update runs, one guard retires an active slot only when its companion
+controller mapping is broken. A second, targeted guard skips an unsafe
+model-controller update without permanently dropping an otherwise recoverable
+effect. This prevents the retail update from dereferencing a null model
+descriptor. Together with the earlier ranges, the static payload is `0x141B0`
+bytes, the camera-object sidecar begins at `0x142F8`, and the aligned game-heap
+payload begins at `0x14600`. Snapshot format version 11 prevents an older MEM2
+slot from being mistaken for this layout.
+
 Same-room loads still require an exact epoch match. The experimental
 cross-room exception requires the epoch mismatch mask to be exactly
 `M00000180`: only mounted-volume count and head may differ; the list tail and
@@ -239,7 +252,7 @@ The invocation containing the load can only emit `97` because tracing was not
 armed at its entry. A final `97` isolates the following scene-table virtual
 call.
 
-For the `0.3.21` hardware pass, first make a new version-10 state, then repeat
+For the `0.3.22` hardware pass, first make a new version-11 state, then repeat
 either known failing resource shape:
 save at the foyer bottom and load at the top, or save immediately before a
 foyer door and load after entering it. Detailed tracing covers the first eight
