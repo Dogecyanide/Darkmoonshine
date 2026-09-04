@@ -210,7 +210,7 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn("kHeapMetadataStart = 0x3Cu", STATE_SOURCE)
         self.assertIn("kHeapMetadataEnd = 0x84u", STATE_SOURCE)
         self.assertIn("kExpHeapAlignment = 16u", STATE_SOURCE)
-        self.assertIn("kSnapshotVersion = 6u", STATE_SOURCE)
+        self.assertIn("kSnapshotVersion = 7u", STATE_SOURCE)
         self.assertIn("kRendererStateStart = 0x80398770u", STATE_SOURCE)
         self.assertIn("kRendererStateEnd = 0x803989E0u", STATE_SOURCE)
         self.assertIn(
@@ -244,8 +244,8 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn("kGameSbss0End = 0x804A0C90u", STATE_SOURCE)
         self.assertIn("kGameSbss1Start = 0x804A0CB0u", STATE_SOURCE)
         self.assertIn("kGameSbss1End = 0x804A1D10u", STATE_SOURCE)
-        self.assertIn("kStateStaticsSize == 0x95A0u", STATE_SOURCE)
-        self.assertIn("kHeapDataOffset == 0x9700u", STATE_SOURCE)
+        self.assertIn("kStateStaticsSize == 0x12D78u", STATE_SOURCE)
+        self.assertIn("kHeapDataOffset == 0x12EC0u", STATE_SOURCE)
         self.assertIn("captureStaticRanges();", STATE_SOURCE)
         self.assertIn("restoreStaticRanges();", STATE_SOURCE)
         self.assertIn("storeStaticRanges();", STATE_SOURCE)
@@ -333,12 +333,15 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn("u32 epochLive()", STATE_SOURCE)
         self.assertIn("Susamune: epoch mask=%08X first=%s", KERNEL_CRASH_SOURCE)
         self.assertIn("LMEpochFieldName(mask)", KERNEL_CRASH_SOURCE)
-        self.assertIn("LM STATE X0.3.14", DIAG_SOURCE)
+        self.assertIn(
+            '"LM STATE X0.3.15 F:%s C:%s H:%s X%02lX"', DIAG_SOURCE
+        )
+        self.assertIn("LMState::crossRoomGuardCode()", DIAG_SOURCE)
         self.assertIn(
             '"E:%s M%08lX %08lX>%08lX"', DIAG_SOURCE
         )
 
-    def test_volume_census_is_bounded_read_only_and_generation_keyed(self) -> None:
+    def test_volume_census_is_bounded_and_generation_keyed(self) -> None:
         self.assertIn("kVolumeListGlobal = 0x80494754u", STATE_SOURCE)
         self.assertIn("kCurrentVolumeGlobal = 0x804A2038u", STATE_SOURCE)
         self.assertIn("kCurrentDirIdGlobal = 0x804A2040u", STATE_SOURCE)
@@ -363,13 +366,11 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn("kVolumeAddedSlots = 3u", STATE_SOURCE)
         self.assertIn('"V%s%s %s/%s O%08lX R%08lX %luB"', DIAG_SOURCE)
         self.assertIn('"VC %08lX>%08lX D%08lX>%08lX"', DIAG_SOURCE)
-        # 0.3.14 diagnoses the mismatch; the exact restore gate remains.
-        self.assertIn("header->volume[0] == live.volume[0]", STATE_SOURCE)
-        self.assertIn("header->volume[1] == live.volume[1]", STATE_SOURCE)
-        self.assertIn("header->volume[2] == live.volume[2]", STATE_SOURCE)
-        self.assertIn("kSnapshotVersion = 6u", STATE_SOURCE)
+        self.assertIn("guardedCrossRoomRestoreAllowed", STATE_SOURCE)
+        self.assertIn("repairSavedVolumeList", STATE_SOURCE)
+        self.assertIn("kSnapshotVersion = 7u", STATE_SOURCE)
 
-    def test_resource_manager_epoch_census_is_bounded_and_read_only(self) -> None:
+    def test_resource_manager_epoch_census_is_bounded(self) -> None:
         self.assertIn("kResourceMapBase = 0x80398C50u", STATE_SOURCE)
         self.assertIn("kResourceMapSize = 0x200u", STATE_SOURCE)
         self.assertIn("kResourceActiveBase = 0x80398E90u", STATE_SOURCE)
@@ -387,8 +388,9 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn('"RM F%lu/%lu A%02lX R%02lX', DIAG_SOURCE)
         self.assertIn('"RA %lu:%08lX>%08lX', DIAG_SOURCE)
         self.assertIn('"RW %lu>%lu -%lu +%lu Q%lu', DIAG_SOURCE)
-        # This build observes external manager drift but still refuses it.
-        self.assertIn("header->volume[0] == live.volume[0]", STATE_SOURCE)
+        self.assertIn("{kResourceMapBase, kResourceStateEnd - kResourceMapBase}",
+                      STATE_SOURCE)
+        self.assertIn("kResourceStateEnd = 0x80398FC8u", STATE_SOURCE)
 
     def test_model_manager_epoch_census_covers_both_fixed_tables(self) -> None:
         self.assertIn("kModelTableBase = 0x803435ACu", STATE_SOURCE)
@@ -433,12 +435,86 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         )
         self.assertLessEqual(len(primary_row), 53)
         self.assertLessEqual(len(registry_row), 53)
-        # The new tables are observed, not copied into the savestate or used
-        # to bypass the existing volume epoch gate.
-        self.assertNotIn("{kModelTableBase, kModelTableSize}", STATE_SOURCE)
-        self.assertNotIn("{kModelRegistryBase, kModelRegistrySize}", STATE_SOURCE)
-        self.assertIn("header->volume[0] == live.volume[0]", STATE_SOURCE)
-        self.assertIn("kSnapshotVersion = 6u", STATE_SOURCE)
+        self.assertIn("{kModelTableBase, kModelTableSize}", STATE_SOURCE)
+        self.assertIn("{kModelRegistryBase, kModelRegistrySize}", STATE_SOURCE)
+        self.assertIn("kModelOutputStateStart = 0x803C86A0u", STATE_SOURCE)
+        self.assertIn("kModelOutputStateEnd = 0x803C97C4u", STATE_SOURCE)
+        self.assertIn("kModelRegistryOutputStateStart = 0x803E3088u",
+                      STATE_SOURCE)
+        self.assertIn("kModelRegistryOutputStateEnd = 0x803E3CF8u",
+                      STATE_SOURCE)
+        self.assertIn("kSnapshotVersion = 7u", STATE_SOURCE)
+
+    def test_guarded_cross_room_raw_rewind_contract(self) -> None:
+        guard_codes = (
+            ("None", "0u"),
+            ("Mask", "1u"),
+            ("Generation", "2u"),
+            ("Volume", "3u"),
+            ("Topology", "4u"),
+            ("Archive", "5u"),
+            ("Resource", "6u"),
+            ("Model", "7u"),
+            ("ModelShape", "8u"),
+            ("Accepted", "0xA0u"),
+        )
+        for name, value in guard_codes:
+            self.assertIn(f"kCrossRoomGuard{name} = {value}", STATE_SOURCE)
+        self.assertIn("u32 crossRoomGuardCode()", STATE_SOURCE)
+
+        guard = STATE_SOURCE.split(
+            "bool guardedCrossRoomRestoreAllowed", 1
+        )[1].split("void repairSavedVolumeList", 1)[0]
+        self.assertRegex(
+            guard,
+            r"SUSAMUNE_LM_EPOCH_VOLUME_COUNT\s*\|\s*"
+            r"SUSAMUNE_LM_EPOCH_VOLUME_HEAD",
+        )
+        self.assertIn("if (mismatch.mask != allowedMask) return false;", guard)
+        self.assertEqual((1 << 7) | (1 << 8), 0x180)
+        self.assertIn("frontVolumeReplacementMatches()", guard)
+        self.assertIn("changedArchiveIsRewindable", guard)
+        self.assertIn("sResourceDiff.mapChanged != 0u", guard)
+        self.assertIn("sSavedResourceCensus.markMask != 0u", guard)
+        self.assertIn("sLiveResourceCensus.markMask != 0u", guard)
+        self.assertIn("modelReplacementMatches()", guard)
+
+        self.assertIn("kResourceStateEnd = 0x80398FC8u", STATE_SOURCE)
+        self.assertIn("kResourceStateEnd - kResourceMapBase == 0x378u",
+                      STATE_SOURCE)
+        self.assertIn("{kVolumeListGlobal, 3u * sizeof(u32)}", STATE_SOURCE)
+        self.assertIn("{kCurrentVolumeGlobal, sizeof(u32)}", STATE_SOURCE)
+        self.assertIn("{kCurrentDirIdGlobal, sizeof(u32)}", STATE_SOURCE)
+
+        repair = STATE_SOURCE.split(
+            "void repairSavedVolumeList", 1
+        )[1].split("u32 crcByte", 1)[0]
+        self.assertIn("writeWord(entry.node, entry.object);", repair)
+        self.assertIn("writeWord(entry.node + 4u, kVolumeListGlobal);", repair)
+        self.assertIn("writeWord(entry.node + 8u, entry.previous);", repair)
+        self.assertIn("writeWord(entry.node + 0xCu, entry.next);", repair)
+        self.assertIn("reinterpret_cast<CacheRangeFn>(kDCStoreRangeAddr)",
+                      repair)
+
+        restore = STATE_SOURCE.split("void loadState()", 1)[1]
+        self.assertIn("repairSavedVolumeList(header);", restore)
+        self.assertLess(restore.index("restoreStaticRanges();"),
+                        restore.index("repairSavedVolumeList(header);"))
+        self.assertLess(restore.index("repairSavedVolumeList(header);"),
+                        restore.index("\n    storeStaticRanges();"))
+        self.assertIn("kGXInvalidateVtxCacheAddr = 0x801EF208u", STATE_SOURCE)
+        self.assertIn("reinterpret_cast<VoidFn>(kGXInvalidateVtxCacheAddr)();",
+                      restore)
+        self.assertIn("reinterpret_cast<VoidFn>(kGXInvalidateTexAllAddr)();",
+                      restore)
+        self.assertLess(restore.index("kGXInvalidateVtxCacheAddr"),
+                        restore.index("kGXInvalidateTexAllAddr"))
+
+        self.assertNotRegex(
+            STATE_SOURCE,
+            r"\b(?:unload|unmount|mountFixed|removeResource|detachResource|"
+            r"reconcile)\w*\s*\(",
+        )
 
     def test_state_quiesces_audio_and_scheduler(self) -> None:
         self.assertIn("kAudioBasicGlobal = 0x804A1DD0u", STATE_SOURCE)

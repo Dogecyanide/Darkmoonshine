@@ -38,6 +38,7 @@ u32 snapshotKiB();
 u32 stableFrames();
 const char *gateText();
 u32 gateValue();
+u32 crossRoomGuardCode();
 const char *epochText();
 u32 epochMask();
 u32 epochSaved();

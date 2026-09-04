@@ -96,6 +96,7 @@ constexpr u32 kOSDisableInterruptsAddr = 0x801D85B0u;
 constexpr u32 kOSRestoreInterruptsAddr = 0x801D85D8u;
 constexpr u32 kOSDisableSchedulerAddr = 0x801DAE98u;
 constexpr u32 kOSEnableSchedulerAddr = 0x801DAED8u;
+constexpr u32 kGXInvalidateVtxCacheAddr = 0x801EF208u;
 constexpr u32 kGXInvalidateTexAllAddr = 0x801F1C10u;
 constexpr u32 kAudioChangeSoundSceneAddr = 0x8018D4E4u;
 
@@ -107,7 +108,7 @@ constexpr u32 kMem1End = 0x81800000u;
 constexpr u32 kSnapshotBase = SUSAMUNE_MEM2_SNAPSHOT_PPC_BASE;
 constexpr u32 kSnapshotCapacity = SUSAMUNE_MEM2_SNAPSHOT_SIZE;
 constexpr u32 kSnapshotMagic = 0x4C4D5354u;  // 'LMST'
-constexpr u32 kSnapshotVersion = 6u;
+constexpr u32 kSnapshotVersion = 7u;
 constexpr u32 kHeaderSize = 0x100u;
 constexpr u32 kHeapMetadataStart = 0x3Cu;
 constexpr u32 kHeapMetadataEnd = 0x84u;
@@ -142,6 +143,28 @@ constexpr u32 kGameSbss0End = 0x804A0C90u;
 // pointers. MissionMode snapshots never need any part of that block.
 constexpr u32 kGameSbss1Start = 0x804A0CB0u;
 constexpr u32 kGameSbss1End = 0x804A1D10u;
+// Room changes replace a small prefix of LM's mounted model archives.  The
+// archive objects and payloads live in the rewound game heap, while these
+// owner tables, output arrays, and room-streamer slots live in fixed BSS.
+constexpr u32 kModelTableBase = 0x803435ACu;
+constexpr u32 kModelEntryCount = 262u;
+constexpr u32 kModelEntrySize = 0x34u;
+constexpr u32 kModelTableSize = kModelEntryCount * kModelEntrySize;
+constexpr u32 kModelRegistryBase = 0x8037EC70u;
+constexpr u32 kModelRegistryEntrySize = 0x40u;
+constexpr u32 kModelRegistrySize =
+    kModelEntryCount * kModelRegistryEntrySize;
+constexpr u32 kResourceMapBase = 0x80398C50u;
+constexpr u32 kResourceMapSize = 0x200u;
+constexpr u32 kResourceActiveBase = 0x80398E90u;
+constexpr u32 kResourceBackingBase = 0x80398ECCu;
+constexpr u32 kResourceMarkBase = 0x80398F08u;
+constexpr u32 kResourceWantedBase = 0x80398F68u;
+constexpr u32 kResourceStateEnd = 0x80398FC8u;
+constexpr u32 kModelOutputStateStart = 0x803C86A0u;
+constexpr u32 kModelOutputStateEnd = 0x803C97C4u;
+constexpr u32 kModelRegistryOutputStateStart = 0x803E3088u;
+constexpr u32 kModelRegistryOutputStateEnd = 0x803E3CF8u;
 
 struct StaticRange {
     u32 address;
@@ -153,26 +176,41 @@ struct StaticRange {
 // +0x08 begins an OSMessageQueue.
 constexpr StaticRange kStateStaticRanges[] = {
     {kRendererStateStart, kRendererStateEnd - kRendererStateStart},
+    {kModelTableBase, kModelTableSize},
+    {kModelRegistryBase, kModelRegistrySize},
+    {kResourceMapBase, kResourceStateEnd - kResourceMapBase},
     {kInGameFlagsBase + kInGameFlagsOffset, kInGameFlagsSize},
+    {kModelOutputStateStart,
+     kModelOutputStateEnd - kModelOutputStateStart},
     {kGrainManagerStateStart,
      kGrainManagerStateEnd - kGrainManagerStateStart},
+    {kModelRegistryOutputStateStart,
+     kModelRegistryOutputStateEnd - kModelRegistryOutputStateStart},
     {kMainLoopStateBase, kMainLoopStateSize},
     {kGameSdata0Start, kGameSdata0End - kGameSdata0Start},
     {kGameSdata1Start, kGameSdata1End - kGameSdata1Start},
     {kGameSbss0Start, kGameSbss0End - kGameSbss0Start},
     {kGameSbss1Start, kGameSbss1End - kGameSbss1Start},
+    // Restore the JKR list anchors only after every archive owner table.
+    {kVolumeListGlobal, 3u * sizeof(u32)},
+    {kCurrentVolumeGlobal, sizeof(u32)},
+    {kCurrentDirIdGlobal, sizeof(u32)},
 };
 constexpr u32 kStateStaticRangeCount =
     sizeof(kStateStaticRanges) / sizeof(kStateStaticRanges[0]);
 constexpr u32 kStateStaticsOffset =
     kHeapMetadataOffset + kHeapMetadataSize;
 constexpr u32 kStateStaticsSize =
-    (kRendererStateEnd - kRendererStateStart) + kInGameFlagsSize +
+    (kRendererStateEnd - kRendererStateStart) + kModelTableSize +
+    kModelRegistrySize + (kResourceStateEnd - kResourceMapBase) +
+    kInGameFlagsSize +
+    (kModelOutputStateEnd - kModelOutputStateStart) +
     (kGrainManagerStateEnd - kGrainManagerStateStart) + kMainLoopStateSize +
+    (kModelRegistryOutputStateEnd - kModelRegistryOutputStateStart) +
     (kGameSdata0End - kGameSdata0Start) +
     (kGameSdata1End - kGameSdata1Start) +
     (kGameSbss0End - kGameSbss0Start) +
-    (kGameSbss1End - kGameSbss1Start);
+    (kGameSbss1End - kGameSbss1Start) + 5u * sizeof(u32);
 constexpr u32 kHeapDataOffset =
     (kStateStaticsOffset + kStateStaticsSize + 31u) & ~31u;
 constexpr u16 kDPadLeft = 0x0001u;
@@ -198,24 +236,10 @@ constexpr u32 kVolumeArchiveOwnerShift = 4u;
 constexpr u32 kVolumeObjectLocationShift = 8u;
 constexpr u32 kVolumeBackingLocationShift = 12u;
 constexpr u32 kVolumeOwnerMask = 0xFu;
-constexpr u32 kResourceMapBase = 0x80398C50u;
-constexpr u32 kResourceMapSize = 0x200u;
-constexpr u32 kResourceActiveBase = 0x80398E90u;
-constexpr u32 kResourceBackingBase = 0x80398ECCu;
-constexpr u32 kResourceMarkBase = 0x80398F08u;
-constexpr u32 kResourceWantedBase = 0x80398F68u;
 constexpr u32 kResourceSlotCount = 7u;
 constexpr u32 kResourceWantedCapacity = 24u;
 constexpr u32 kResourceRecordSize = 0x40u;
 constexpr u32 kResourceSlotSize = 0x70800u;
-constexpr u32 kModelTableBase = 0x803435ACu;
-constexpr u32 kModelEntryCount = 262u;
-constexpr u32 kModelEntrySize = 0x34u;
-constexpr u32 kModelTableSize = kModelEntryCount * kModelEntrySize;
-constexpr u32 kModelRegistryBase = 0x8037EC70u;
-constexpr u32 kModelRegistryEntrySize = 0x40u;
-constexpr u32 kModelRegistrySize =
-    kModelEntryCount * kModelRegistryEntrySize;
 constexpr u32 kModelChangeSlots = 4u;
 constexpr u32 kModelNameBytes = 9u;
 constexpr u32 kModelPathLimit = 96u;
@@ -234,6 +258,19 @@ enum ResourceFault : u32 {
 enum ModelFault : u32 {
     kModelFaultNone = 0u,
     kModelFaultChanged,
+};
+
+enum CrossRoomGuard : u32 {
+    kCrossRoomGuardNone = 0u,
+    kCrossRoomGuardMask = 1u,
+    kCrossRoomGuardGeneration = 2u,
+    kCrossRoomGuardVolume = 3u,
+    kCrossRoomGuardTopology = 4u,
+    kCrossRoomGuardArchive = 5u,
+    kCrossRoomGuardResource = 6u,
+    kCrossRoomGuardModel = 7u,
+    kCrossRoomGuardModelShape = 8u,
+    kCrossRoomGuardAccepted = 0xA0u,
 };
 
 enum VolumeFault : u32 {
@@ -398,9 +435,9 @@ static_assert(kSnapshotBase + kSnapshotCapacity ==
               "LM state must end before the config/crash mailboxes");
 static_assert((kHeapDataOffset & 31u) == 0,
               "LM heap payload must be cache-line aligned");
-static_assert(kStateStaticsSize == 0x95A0u,
+static_assert(kStateStaticsSize == 0x12D78u,
               "LM static manifest size drifted");
-static_assert(kHeapDataOffset == 0x9700u,
+static_assert(kHeapDataOffset == 0x12EC0u,
               "LM static manifest packing drifted");
 static_assert(kRendererStateEnd - kRendererStateStart == 0x270u,
               "LM renderer snapshot boundary drifted");
@@ -413,6 +450,16 @@ static_assert(kGameSdata1End == kAudioObjectGlobal,
               "LM game sdata must stop before live audio state");
 static_assert(kGameSbss1End < kAudioBasicGlobal,
               "LM game sbss must stop before live audio state");
+static_assert(kResourceStateEnd - kResourceMapBase == 0x378u,
+              "LM room-streamer snapshot boundary drifted");
+static_assert(kModelOutputStateEnd - kModelOutputStateStart == 0x1124u,
+              "LM primary model-output boundary drifted");
+static_assert(kModelRegistryOutputStateEnd -
+                      kModelRegistryOutputStateStart ==
+                  0xC70u,
+              "LM registry-output boundary drifted");
+static_assert(kModelRegistryOutputStateEnd == kAudioStaticObject,
+              "LM registry outputs must stop before live audio state");
 static_assert(kMainLoopSceneGlobal == kSceneValueGlobal,
               "LM loop scene must match the captured scene identity");
 static_assert(kMainDrawStateGlobal >= kGameSbss0Start &&
@@ -609,6 +656,7 @@ u16 sPreviousButtons;
 u32 sGateValue;
 u32 sPostLoadTraceState;
 u32 sPostLoadTraceFrame;
+u32 sCrossRoomGuard;
 
 void traceSavePhase(u32 phase, u32 detail) {
     LMCrash::note(kEventStateSavePhase, phase, detail);
@@ -1693,6 +1741,256 @@ void diagnoseVolumeEpoch(const SnapshotHeader *header,
     diffVolumeCensus(sSavedVolumeCensus, sLiveVolumeCensus);
 }
 
+bool frontVolumeReplacementMatches() {
+    const u32 removed = sVolumeDiff.removedCount;
+    const u32 added = sVolumeDiff.addedCount;
+    if (!sVolumeDiff.ready || !sVolumeDiff.savedValid ||
+        !sVolumeDiff.liveValid || !sVolumeDiff.commonOrder || removed == 0u ||
+        added == 0u || removed > kVolumeRemovedSlots ||
+        added > kVolumeAddedSlots || removed + added > kModelChangeSlots ||
+        sSavedVolumeCensus.count < removed ||
+        sLiveVolumeCensus.count < added) {
+        return false;
+    }
+
+    const u32 savedCommon = sSavedVolumeCensus.count - removed;
+    const u32 liveCommon = sLiveVolumeCensus.count - added;
+    if (savedCommon == 0u || savedCommon != liveCommon) {
+        return false;
+    }
+    for (u32 i = 0; i < removed; ++i) {
+        if (sVolumeDiff.removedIndices[i] != i) return false;
+    }
+    for (u32 i = 0; i < added; ++i) {
+        if (sVolumeDiff.addedIndices[i] != i) return false;
+    }
+    for (u32 i = 0; i < savedCommon; ++i) {
+        if (!sameVolumeDescriptor(sSavedVolumeCensus.entries[removed + i],
+                                  sLiveVolumeCensus.entries[added + i])) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool changedArchiveIsRewindable(const VolumeDescriptor &entry,
+                                const LiveIdentity &identity) {
+    const u32 requiredFlags = kVolumeArchiveValid | kVolumeRarcValid |
+                              kVolumeMounted | kVolumeOpen;
+    const u32 objectLocation =
+        (entry.ownerFlags >> kVolumeObjectLocationShift) & kVolumeOwnerMask;
+    const u32 backingLocation =
+        (entry.ownerFlags >> kVolumeBackingLocationShift) & kVolumeOwnerMask;
+    return entry.vtable == kMemArchiveVtable &&
+           entry.node == entry.object + 0x18u &&
+           entry.objectOwnerHeap == identity.heap &&
+           entry.archiveHeap == identity.heap &&
+           objectLocation == kVolumeOwnerGame &&
+           backingLocation == kVolumeOwnerGame &&
+           (entry.stateFlags & requiredFlags) == requiredFlags &&
+           entry.fileLength >= 0x20u &&
+           classifyVolumeRange(entry.archiveHeader, entry.fileLength,
+                               identity) == kVolumeOwnerGame;
+}
+
+bool changedModelWordsAreKnown(u32 index) {
+    const u32 primaryFirst = index * (kModelEntrySize / sizeof(u32));
+    for (u32 word = 0u; word < kModelEntrySize / sizeof(u32); ++word) {
+        if (sSavedModelCensus.words[primaryFirst + word] ==
+            sLiveModelCensus.words[primaryFirst + word]) {
+            continue;
+        }
+        const u32 offset = word * sizeof(u32);
+        if (offset != 0x04u && offset != 0x08u && offset != 0x2Cu &&
+            offset != 0x30u) {
+            return false;
+        }
+    }
+
+    const u32 registryFirst =
+        index * (kModelRegistryEntrySize / sizeof(u32));
+    for (u32 word = 0u;
+         word < kModelRegistryEntrySize / sizeof(u32); ++word) {
+        if (sSavedModelCensus.registryWords[registryFirst + word] ==
+            sLiveModelCensus.registryWords[registryFirst + word]) {
+            continue;
+        }
+        const u32 offset = word * sizeof(u32);
+        if (offset != 0x04u && offset != 0x0Cu) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool matchChangedVolumeObject(const VolumeCensus &census, u32 count,
+                              u32 object, u32 *matchedMask) {
+    for (u32 i = 0u; i < count; ++i) {
+        if (census.entries[i].object != object) continue;
+        const u32 bit = 1u << i;
+        if ((*matchedMask & bit) != 0u) return false;
+        *matchedMask |= bit;
+        return true;
+    }
+    return false;
+}
+
+bool modelReplacementMatches() {
+    const u32 removed = sVolumeDiff.removedCount;
+    const u32 added = sVolumeDiff.addedCount;
+    if (!sModelDiff.ready || !sModelDiff.savedValid ||
+        !sModelDiff.liveValid ||
+        sModelDiff.changedCount != removed + added ||
+        sModelDiff.changedCount > kModelChangeSlots) {
+        return false;
+    }
+
+    // A state of 1 or 2 is an in-flight model request even when the global
+    // DVD counter happens to be idle at this instant.
+    for (u32 i = 0u; i < kModelEntryCount; ++i) {
+        const u32 savedState = modelEntryWord(sSavedModelCensus, i, 0x30u);
+        const u32 liveState = modelEntryWord(sLiveModelCensus, i, 0x30u);
+        if ((savedState != 0u && savedState != 3u) ||
+            (liveState != 0u && liveState != 3u)) {
+            return false;
+        }
+    }
+
+    u32 matchedRemoved = 0u;
+    u32 matchedAdded = 0u;
+    for (u32 i = 0u; i < sModelDiff.changedCount; ++i) {
+        const ModelChange &change = sModelDiff.changes[i];
+        if (change.index >= kModelEntryCount ||
+            change.sourceMask !=
+                (kModelChangedPrimary | kModelChangedRegistry) ||
+            !changedModelWordsAreKnown(change.index)) {
+            return false;
+        }
+        const u32 savedRegistryHandle =
+            modelRegistryWord(sSavedModelCensus, change.index, 0x04u);
+        const u32 liveRegistryHandle =
+            modelRegistryWord(sLiveModelCensus, change.index, 0x04u);
+        if (savedRegistryHandle != change.savedHandle ||
+            liveRegistryHandle != change.liveHandle) {
+            return false;
+        }
+
+        if (change.savedState == 3u && change.liveState == 0u &&
+            change.savedHandle != 0u && change.liveHandle == 0u) {
+            if (!matchChangedVolumeObject(sSavedVolumeCensus, removed,
+                                          change.savedHandle,
+                                          &matchedRemoved)) {
+                return false;
+            }
+        } else if (change.savedState == 0u && change.liveState == 3u &&
+                   change.savedHandle == 0u &&
+                   change.liveHandle != 0u) {
+            if (!matchChangedVolumeObject(sLiveVolumeCensus, added,
+                                          change.liveHandle,
+                                          &matchedAdded)) {
+                return false;
+            }
+        } else {
+            return false;
+        }
+    }
+
+    return matchedRemoved == ((1u << removed) - 1u) &&
+           matchedAdded == ((1u << added) - 1u);
+}
+
+bool guardedCrossRoomRestoreAllowed(const SnapshotHeader *header,
+                                    const LiveIdentity &live,
+                                    const EpochMismatch &mismatch) {
+    const u32 allowedMask = SUSAMUNE_LM_EPOCH_VOLUME_COUNT |
+                            SUSAMUNE_LM_EPOCH_VOLUME_HEAD;
+    sCrossRoomGuard = kCrossRoomGuardMask;
+    if (mismatch.mask != allowedMask) return false;
+
+    sCrossRoomGuard = kCrossRoomGuardGeneration;
+    if (sSavedVolumeCensus.generation != header->generation ||
+        sSavedResourceCensus.generation != header->generation ||
+        sSavedModelCensus.generation != header->generation) {
+        return false;
+    }
+
+    diagnoseVolumeEpoch(header, live, mismatch.mask);
+    sCrossRoomGuard = kCrossRoomGuardVolume;
+    if (!sVolumeDiff.ready || !sSavedVolumeCensus.valid ||
+        !sLiveVolumeCensus.valid ||
+        sSavedVolumeCensus.count != header->volume[2] ||
+        sSavedVolumeCensus.head != header->volume[0] ||
+        sSavedVolumeCensus.tail != header->volume[1] ||
+        sSavedVolumeCensus.tail != sLiveVolumeCensus.tail ||
+        sVolumeDiff.currentChanged != 0u) {
+        return false;
+    }
+
+    sCrossRoomGuard = kCrossRoomGuardTopology;
+    if (!frontVolumeReplacementMatches()) return false;
+
+    sCrossRoomGuard = kCrossRoomGuardArchive;
+    for (u32 i = 0u; i < sVolumeDiff.removedCount; ++i) {
+        if (!changedArchiveIsRewindable(sSavedVolumeCensus.entries[i],
+                                        live)) {
+            return false;
+        }
+    }
+    for (u32 i = 0u; i < sVolumeDiff.addedCount; ++i) {
+        if (!changedArchiveIsRewindable(sLiveVolumeCensus.entries[i], live)) {
+            return false;
+        }
+    }
+
+    sCrossRoomGuard = kCrossRoomGuardResource;
+    if (!sResourceDiff.ready || !sResourceDiff.savedValid ||
+        !sResourceDiff.liveValid || sResourceDiff.layoutChanged != 0u ||
+        sResourceDiff.mapChanged != 0u ||
+        sSavedResourceCensus.backingBadMask != 0u ||
+        sLiveResourceCensus.backingBadMask != 0u ||
+        sSavedResourceCensus.markMask != 0u ||
+        sLiveResourceCensus.markMask != 0u ||
+        sSavedResourceCensus.wantedCount != 0u ||
+        sLiveResourceCensus.wantedCount != 0u ||
+        sResourceDiff.wantedSequenceChanged != 0u ||
+        sResourceDiff.activeMismatchMask !=
+            sResourceDiff.recordMismatchMask) {
+        return false;
+    }
+
+    sCrossRoomGuard = kCrossRoomGuardModel;
+    if (!sModelDiff.ready || !sSavedModelCensus.valid ||
+        !sLiveModelCensus.valid) {
+        return false;
+    }
+    sCrossRoomGuard = kCrossRoomGuardModelShape;
+    if (!modelReplacementMatches()) return false;
+
+    sCrossRoomGuard = kCrossRoomGuardAccepted;
+    return true;
+}
+
+void repairSavedVolumeList(const SnapshotHeader *header) {
+    if (sSavedVolumeCensus.generation != header->generation ||
+        !sSavedVolumeCensus.valid) {
+        return;
+    }
+    writeWord(kVolumeListGlobal, sSavedVolumeCensus.head);
+    writeWord(kVolumeListGlobal + 4u, sSavedVolumeCensus.tail);
+    writeWord(kVolumeListGlobal + 8u, sSavedVolumeCensus.count);
+    writeWord(kCurrentVolumeGlobal, sSavedVolumeCensus.currentVolume);
+    writeWord(kCurrentDirIdGlobal, sSavedVolumeCensus.currentDirId);
+    for (u32 i = 0u; i < sSavedVolumeCensus.count; ++i) {
+        const VolumeDescriptor &entry = sSavedVolumeCensus.entries[i];
+        writeWord(entry.node, entry.object);
+        writeWord(entry.node + 4u, kVolumeListGlobal);
+        writeWord(entry.node + 8u, entry.previous);
+        writeWord(entry.node + 0xCu, entry.next);
+        reinterpret_cast<CacheRangeFn>(kDCStoreRangeAddr)(
+            reinterpret_cast<void *>(entry.node), 0x10u);
+    }
+}
+
 u32 crcByte(u32 crc, u8 byte) {
     crc ^= byte;
     for (u32 bit = 0; bit < 8u; ++bit) {
@@ -1957,7 +2255,8 @@ void initializeSlot() {
 }
 
 bool headerMatchesLive(const SnapshotHeader *header,
-                       const LiveIdentity &live) {
+                       const LiveIdentity &live,
+                       bool allowGuardedVolumeDrift = false) {
     return header->heap == live.heap &&
            header->heapStart == live.heapStart &&
            header->heapEnd == live.heapEnd &&
@@ -2001,9 +2300,10 @@ bool headerMatchesLive(const SnapshotHeader *header,
            header->simpleModeler == live.simpleModeler &&
            header->mapCol == live.mapCol &&
            header->enTypesManager == live.enTypesManager &&
-           header->volume[0] == live.volume[0] &&
-           header->volume[1] == live.volume[1] &&
-           header->volume[2] == live.volume[2];
+           (allowGuardedVolumeDrift ||
+            (header->volume[0] == live.volume[0] &&
+             header->volume[1] == live.volume[1] &&
+             header->volume[2] == live.volume[2]));
 }
 
 bool pointerInSavedHeap(u32 pointer, const SnapshotHeader *header) {
@@ -2020,6 +2320,7 @@ bool savedPointerCompatible(u32 saved, u32 current,
 }
 
 void saveState() {
+    sCrossRoomGuard = kCrossRoomGuardNone;
     clearEpochMismatch();
     clearVolumeDiff();
     clearResourceDiff();
@@ -2169,6 +2470,7 @@ void saveState() {
 }
 
 void loadState() {
+    sCrossRoomGuard = kCrossRoomGuardNone;
     clearEpochMismatch();
     clearVolumeDiff();
     clearResourceDiff();
@@ -2206,9 +2508,15 @@ void loadState() {
     }
     EpochMismatch mismatch;
     collectPreflightEpochMismatch(&mismatch, header, preflight);
+    bool guardedCrossRoom = false;
     if (mismatch.mask != 0u) {
-        rejectEpoch(mismatch, header, preflight);
-        return;
+        guardedCrossRoom =
+            guardedCrossRoomRestoreAllowed(header, preflight, mismatch);
+        if (!guardedCrossRoom) {
+            rejectEpoch(mismatch, header, preflight);
+            return;
+        }
+        traceLoadPhase(0x06u, mismatch.mask);
     }
     const u32 liveCurrentScene = readWord(kCurrentSceneGlobal);
     const u32 liveGameMode = readWord(kGameModeGlobal);
@@ -2242,13 +2550,15 @@ void loadState() {
         setReject(LMState::Status::Epoch, preflight.heap);
         return;
     }
-    if (!headerMatchesLive(header, before)) {
-        collectPreflightEpochMismatch(&mismatch, header, before);
-        if (mismatch.mask != 0u) {
-            rejectEpoch(mismatch, header, before);
-        } else {
-            setReject(LMState::Status::Epoch, preflight.heap);
-        }
+    collectPreflightEpochMismatch(&mismatch, header, before);
+    const bool beforeEpochAllowed =
+        guardedCrossRoom
+            ? guardedCrossRoomRestoreAllowed(header, before, mismatch)
+            : mismatch.mask == 0u;
+    if (!beforeEpochAllowed ||
+        !headerMatchesLive(header, before, guardedCrossRoom)) {
+        if (mismatch.mask != 0u) rejectEpoch(mismatch, header, before);
+        else setReject(LMState::Status::Epoch, preflight.heap);
         return;
     }
     if (!heapsHealthy(before)) {
@@ -2260,48 +2570,65 @@ void loadState() {
     const FreezeState freeze = freezeBegin();
     traceLoadPhase(0x43u, before.heap);
     LiveIdentity live;
-    if (!buildIdentity(&live) || !sameIdentity(before, live) ||
-        !headerMatchesLive(header, live)) {
+    const bool liveBuilt = buildIdentity(&live);
+    if (liveBuilt) {
+        collectPreflightEpochMismatch(&mismatch, header, live);
+    }
+    const bool liveEpochAllowed =
+        liveBuilt &&
+        (guardedCrossRoom
+             ? guardedCrossRoomRestoreAllowed(header, live, mismatch)
+             : mismatch.mask == 0u);
+    if (!liveBuilt || !sameIdentity(before, live) || !liveEpochAllowed ||
+        !headerMatchesLive(header, live, guardedCrossRoom)) {
         freezeEnd(freeze);
         setReject(LMState::Status::Busy, live.heap);
         return;
     }
 
     traceLoadPhase(0x60u, live.heapSize);
-    copyWords(reinterpret_cast<void *>(live.heap + kHeapMetadataStart),
-              reinterpret_cast<void *>(kSnapshotBase + kHeapMetadataOffset),
-              kHeapMetadataSize);
-    traceLoadPhase(0x61u, kHeapMetadataSize);
     copyWords(reinterpret_cast<void *>(live.heapStart),
               reinterpret_cast<void *>(kSnapshotBase + kHeapDataOffset),
               live.heapSize);
-    traceLoadPhase(0x62u, live.heapSize);
+    traceLoadPhase(0x61u, live.heapSize);
+    copyWords(reinterpret_cast<void *>(live.heap + kHeapMetadataStart),
+              reinterpret_cast<void *>(kSnapshotBase + kHeapMetadataOffset),
+              kHeapMetadataSize);
+    traceLoadPhase(0x62u, kHeapMetadataSize);
 
-    // Restore game-owned statics but leave JAudio, JSystem, SDK, and allocator
-    // globals live. Their queues and hardware-facing state cannot be rewound.
+    // Restore game-owned statics but leave JAudio, SDK, and hardware-facing
+    // queues live.  The guarded room path also rewinds the fixed model/room
+    // owner tables and JKR volume anchors that refer into the game heap.
     restoreStaticRanges();
     writeWord(kRandomStateGlobal, header->randomState);
     traceLoadPhase(0x63u, kStateStaticsSize);
 
-    // MissionMode is captured with the game heap and mounted volumes remain an
-    // exact epoch gate because their resource backing is not rewound.
-    traceLoadPhase(0x64u, header->currentScene);
+    if (guardedCrossRoom) {
+        // Common system/root volumes are not part of the game-heap copy. Their
+        // embedded list links still need to point back through the saved
+        // game-owned prefix after the raw allocator rewind.
+        repairSavedVolumeList(header);
+    }
+    traceLoadPhase(0x64u, guardedCrossRoom ? header->volume[2] : 0u);
 
+    reinterpret_cast<CacheRangeFn>(kDCStoreRangeAddr)(
+        reinterpret_cast<void *>(live.heapStart), live.heapSize);
+    traceLoadPhase(0x65u, live.heapSize);
     reinterpret_cast<CacheRangeFn>(kDCStoreRangeAddr)(
         reinterpret_cast<void *>(live.heap + kHeapMetadataStart),
         kHeapMetadataSize);
-    traceLoadPhase(0x65u, kHeapMetadataSize);
-    reinterpret_cast<CacheRangeFn>(kDCStoreRangeAddr)(
-        reinterpret_cast<void *>(live.heapStart), live.heapSize);
-    traceLoadPhase(0x66u, live.heapSize);
+    traceLoadPhase(0x66u, kHeapMetadataSize);
     storeStaticRanges();
     reinterpret_cast<CacheRangeFn>(kDCStoreRangeAddr)(
         reinterpret_cast<void *>(kRandomStateGlobal), sizeof(u32));
     traceLoadPhase(0x67u, kStateStaticsSize);
     traceLoadPhase(0x68u, live.heap);
+    asm volatile("sync" ::: "memory");
+    reinterpret_cast<VoidFn>(kGXInvalidateVtxCacheAddr)();
+    traceLoadPhase(0x69u, kGXInvalidateVtxCacheAddr);
     reinterpret_cast<VoidFn>(kGXInvalidateTexAllAddr)();
     asm volatile("sync" ::: "memory");
-    traceLoadPhase(0x69u, live.heap);
+    traceLoadPhase(0x6Au, kGXInvalidateTexAllAddr);
 
     traceLoadPhase(0x70u, live.heap);
     freezeEnd(freeze, true);
@@ -2573,6 +2900,10 @@ const char *gateText() {
 
 u32 gateValue() {
     return sGateValue;
+}
+
+u32 crossRoomGuardCode() {
+    return sCrossRoomGuard;
 }
 
 const char *epochText() {

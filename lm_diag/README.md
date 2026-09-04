@@ -14,7 +14,7 @@ unmodified.
 The overlay rows are:
 
 ```text
-LM STATE X0.3.14 F:<floor> C:<canary> H:<heap check>
+LM STATE X0.3.15 F:<floor> C:<canary> H:<heap check> X<cross-room guard>
 S:<state status> ST<stable frames> SZ<snapshot KiB> G:<gate> <gate value>
 E:<first epoch field> M<mismatch mask> <saved value>><live value>
 V:<topology> S<saved count>>L<live count> -<removed> +<added> F<save>/<live fault>
@@ -41,6 +41,16 @@ CUR <current> G<group> A <raw low>><raised low> H<initial high>
 `OK` means the condition has been observed and remains valid. `BAD` is latched
 after a real floor, canary, or `JKRExpHeap::check` failure; a normal room-load
 gap does not turn the heap check bad.
+
+The final `X` byte is the guarded cross-room decision breadcrumb. It remains
+`X00` until a mismatched load reaches that path and becomes `XA0` when every
+guard accepts it. `X01` through `X08` identify the check that refused the load:
+
+```text
+X01 epoch mask       X02 census generation  X03 volume census
+X04 list topology    X05 archive ownership  X06 room streamer
+X07 model census     X08 model shape         XA0 accepted
+```
 
 Diagnostic packages also force Nintendont's `/ndebug.log` on the game-source
 device (the SD card for the current `path_jp=sd:` setup). It records payload
@@ -125,7 +135,7 @@ The `Fsave/live` values are zero for valid censuses. Nonzero faults are:
 7 embedded link  8 previous link  9 duplicate  10 tail  11 end  12 changed
 ```
 
-Version `0.3.14` reserves separate rows for the first three removed and first
+Version `0.3.14` reserved separate rows for the first three removed and first
 three added archives, adds each archive object's RARC header and size, and
 reports object/RARC allocation reuse. It also captures a generation-keyed,
 read-only census of LM's seven-slot streamed room-archive manager. `A` and `R`
@@ -140,7 +150,7 @@ sequence change with `Q`. This room manager is separate from the model-archive o
 1 slot count  2 wanted capacity  3 record range  4 bulk range  5 slot size
 ```
 
-The same version also takes a generation-keyed, read-only census of the two
+The same version also took a generation-keyed, read-only census of the two
 262-entry model-resource tables at `0x803435AC-0x80346AE4` and
 `0x8037EC70-0x80382DF0`. Those tables own the lifecycle state behind model
 archives such as `tenjyo`, `bat`, `rat`, and `door`; they are distinct from the
@@ -154,7 +164,45 @@ the low 25 bits of its parsed model root; that preserves every variable bit of
 a MEM1 address. Names are capped at eight characters. A registry-only row instead shows
 its full archive-pointer pair followed by complete entry hashes. Model fault `1` means a table
 changed while the bounded copy was being verified. No model table is restored
-and no epoch gate is relaxed in this diagnostic build.
+and no epoch gate was relaxed in that diagnostic build.
+
+Version `0.3.15` is the first guarded cross-room raw-rewind experiment. It adds
+the fixed state identified by the `0.3.14` captures to the snapshot:
+
+```text
+803435AC-80346AE4  primary model descriptors
+8037EC70-80382DF0  secondary model registry
+803C86A0-803C97C4  primary model output arrays
+803E3088-803E3CF8  secondary model output arrays
+80398C50-80398FC8  room map, slots, backing pointers, marks, and wanted IDs
+80494754-80494760  mounted-volume list header
+804A2038-804A203C  current mounted volume
+804A2040-804A2044  current directory ID
+```
+
+Together with the earlier ranges, the static payload is `0x12D78` bytes and
+the aligned game-heap payload begins at snapshot offset `0x12EC0`. Snapshot
+format version 7 prevents an older MEM2 slot from being mistaken for this
+layout.
+
+Same-room loads still require an exact epoch match. The experimental
+cross-room exception requires the epoch mismatch mask to be exactly
+`M00000180`: only mounted-volume count and head may differ; the list tail and
+all other identity fields must remain exact. It then requires a valid
+generation-matched census, an exact common saved-list suffix with no more than
+four total leading removals/additions, game-heap ownership for every changed
+archive object and RARC backing, stable current-volume/directory values, valid
+room-manager layout and backing pointers with no reconcile marks, and at most
+four model changes with no load/cancel-pending state. A failed condition keeps
+the existing clean `EPOCH` refusal.
+
+For an accepted load, the implementation rewinds the gameplay heap and the
+fixed tables as one raw snapshot. It then reconstructs every saved mounted
+volume node's object, parent-list, previous, and next fields from the protected
+save-time census and stores the repaired links before resuming. It deliberately
+does not call archive unload/load or room-resource reconcile functions. Both
+the GX vertex cache and texture cache are invalidated after the restored bytes
+are made coherent.
 
 If the inner game loop exits during that window, `96/97` identify loop
 entry/return, `98/99` bracket outer cleanup, and `9A/9B` bracket its restart.
@@ -162,9 +210,14 @@ The invocation containing the load can only emit `97` because tracing was not
 armed at its entry. A final `97` isolates the following scene-table virtual
 call.
 
-For a useful hardware pass, capture the title screen, an active room after a
-few minutes, a room transition on the same floor, a floor transition, and the
-lowest `S`/`G` values seen during normal play.
+For the first `0.3.15` hardware pass, confirm several same-room restores, then
+repeat the two captured resource shapes: save at the foyer bottom and load at
+the top, then save immediately before a foyer door and load after entering it.
+Record whether `S:LOADED` appears, whether the saved frame is visible, and
+whether play remains stable for at least a minute and through the next door.
+Photograph the complete panel for any `EPOCH`, and preserve the newest crash
+report or `/ndebug.log` after a crash or hard lock. Wider room and floor tests
+should wait until these two bounded cases are repeatable.
 
 Build the Homebrew Channel package with:
 
