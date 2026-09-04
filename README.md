@@ -6,7 +6,7 @@ Mansion (`GLMJ01`).
 
 ## Current status
 
-`Full-State Experimental 0.3.17` is the current hardware-testable state build.
+`Full-State Experimental 0.3.18` is the current hardware-testable state build.
 
 - The custom Nintendont launcher accepts only the verified Japanese `GLMJ01`
   revision-0 executable for injection.
@@ -33,16 +33,16 @@ Mansion (`GLMJ01`).
   Moonshine's proven post-draw timing. Additional journal markers split the
   first restored draw into matrix, scene-callback, and projection stages, then
   identify the exact direct renderer call if the callback does not return.
-- Post-load tracing remains armed for eight complete restored frames and also
-  brackets the main-loop tail, so a delayed hard lock retains its exact frame
-  number and last entered retail call.
+- Post-load tracing remains armed for eight complete restored frames. It now
+  brackets every direct subsystem call in `MAIN GAME`'s update routine, so the
+  ARM journal identifies the exact first-frame call that does not return.
 - Cross-room checks retain a complete 22-field epoch mask plus the saved and
   live values of the highest-priority mismatch on both the overlay and in
   `/ndebug.log`.
 - The first cross-room path is deliberately narrow. It accepts only volume
   count/head drift (`M00000180`) with an unchanged tail and all other epoch
-  fields unchanged, then requires a bounded, validated front substitution
-  whose surviving volumes form an exact common suffix.
+  fields unchanged, then requires a bounded, validated ordered substitution
+  whose surviving volumes form an exact common subsequence.
 - Generation-keyed volume, seven-slot room-streamer, and 262-entry model-table
   censuses must also prove that the changing archives and backing allocations
   are game-heap-owned and that no asynchronous resource operation is live.
@@ -54,7 +54,7 @@ Mansion (`GLMJ01`).
 Controls are D-pad Left to save and D-pad Right to load. Confirm same-room
 restores first, then repeat the two bounded tests that produced the 0.3.14
 captures: save at the foyer bottom and load at the top, followed by save before
-a foyer door and load after it. `0.3.17` may attempt those restores instead of
+a foyer door and load after it. `0.3.18` may attempt those restores instead of
 returning `EPOCH`; a successful load is evidence for this specific resource
 shape, not general cross-room support. Any different room, floor, transition,
 or asynchronous state is expected to refuse safely. This remains a crash-risk
@@ -96,7 +96,7 @@ The build emits a version-labelled tester package plus a stable compatibility
 name:
 
 ```text
-build-lm-diag/Moonshine-Luigis-Mansion-Full-State-Experimental-0.3.17.zip
+build-lm-diag/Moonshine-Luigis-Mansion-Full-State-Experimental-0.3.18.zip
 build-lm-diag/moonshine_luigis_mansion_launcher.zip
 ```
 
@@ -120,7 +120,7 @@ disc or ISO.
 
 Back up any real memory-card data, install the four packaged files under
 `apps/moonshine_luigis_mansion/`, and launch a clean revision-0 GLMJ01 image.
-The overlay must start with `LM STATE X0.3.17`; wait until `F`, `C`, `H`, and
+The overlay must start with `LM STATE X0.3.18`; wait until `F`, `C`, `H`, and
 `G` are `OK` and `ST` is at least 3. The trailing `X` byte reports the guarded
 cross-room path: `X00` means it has not been attempted, `XA0` means it passed,
 and `X01` through `X08` identify the refusal stage: epoch mask, saved-census

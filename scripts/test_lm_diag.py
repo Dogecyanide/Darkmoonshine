@@ -50,6 +50,40 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
                 (0x8000B268, "diagnosticFirstPosMatrix", "BL", 0x481E99C9),
                 (0x8000B34C, "diagnosticLastNrmMatrix", "BL", 0x481E9921),
                 (0x8000B35C, "diagnosticSceneDraw", "BL", 0x4E800021),
+                (0x8000B930, "diagnosticMainUpdateB930", "BL", 0x48003501),
+                (0x8000B934, "diagnosticMainUpdateB934", "BL", 0x4804BD51),
+                (0x8000B938, "diagnosticMainUpdateB938", "BL", 0x48000D19),
+                (0x8000B948, "diagnosticMainUpdateB948", "BL", 0x4817B501),
+                (0x8000B94C, "diagnosticMainUpdateB94C", "BL", 0x48000DE1),
+                (0x8000B958, "diagnosticMainUpdateB958", "BL", 0x480321F9),
+                (0x8000B974, "diagnosticMainUpdateB974", "BL", 0x480008C5),
+                (0x8000B978, "diagnosticMainUpdateB978", "BL", 0x480009F1),
+                (0x8000B97C, "diagnosticMainUpdateB97C", "BL", 0x48000F3D),
+                (0x8000B980, "diagnosticMainUpdateB980", "BL", 0x480011AD),
+                (0x8000B984, "diagnosticMainUpdateB984", "BL", 0x48001329),
+                (0x8000B988, "diagnosticMainUpdateB988", "BL", 0x480012A5),
+                (0x8000B9B8, "diagnosticMainUpdateB9B8", "BL", 0x48056091),
+                (0x8000B9D4, "diagnosticMainUpdateB9D4", "BL", 0x480058A1),
+                (0x8000B9D8, "diagnosticMainUpdateB9D8", "BL", 0x480201F9),
+                (0x8000B9DC, "diagnosticMainUpdateB9DC", "BL", 0x4803A7ED),
+                (0x8000B9E0, "diagnosticMainUpdateB9E0", "BL", 0x4802C181),
+                (0x8000B9E4, "diagnosticMainUpdateB9E4", "BL", 0x48038151),
+                (0x8000B9E8, "diagnosticMainUpdateB9E8", "BL", 0x48117819),
+                (0x8000B9EC, "diagnosticMainUpdateB9EC", "BL", 0x481380ED),
+                (0x8000B9F0, "diagnosticMainUpdateB9F0", "BL", 0x4805459D),
+                (0x8000B9F4, "diagnosticMainUpdateB9F4", "BL", 0x480055C5),
+                (0x8000B9FC, "diagnosticMainUpdateB9FC", "BL", 0x48005879),
+                (0x8000BA00, "diagnosticMainUpdateBA00", "BL", 0x480ACA79),
+                (0x8000BA10, "diagnosticMainUpdateBA10", "BL", 0x48179795),
+                (0x8000BA14, "diagnosticMainUpdateBA14", "BL", 0x48155345),
+                (0x8000BA20, "diagnosticMainUpdateBA20", "BL", 0x48152A15),
+                (0x8000BA24, "diagnosticMainUpdateBA24", "BL", 0x4805316D),
+                (0x8000BA28, "diagnosticMainUpdateBA28", "BL", 0x48054D1D),
+                (0x8000BA2C, "diagnosticMainUpdateBA2C", "BL", 0x48065535),
+                (0x8000BA30, "diagnosticMainUpdateBA30", "BL", 0x48111F59),
+                (0x8000BA34, "diagnosticMainUpdateBA34", "BL", 0x4814B09D),
+                (0x8000BA38, "diagnosticMainUpdateBA38", "BL", 0x48123089),
+                (0x8000BA3C, "diagnosticMainUpdateBA3C", "BL", 0x4811F6B9),
                 (0x8000BD1C, "diagnosticMainDrawBD1C", "BL", 0x480009E5),
                 (0x8000BD24, "diagnosticMainDrawBD24", "BL", 0x48000741),
                 (0x8000BD2C, "diagnosticMainDrawBD2C", "BL", 0x48000C41),
@@ -334,7 +368,7 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn("Susamune: epoch mask=%08X first=%s", KERNEL_CRASH_SOURCE)
         self.assertIn("LMEpochFieldName(mask)", KERNEL_CRASH_SOURCE)
         self.assertIn(
-            '"LM STATE X0.3.17 F:%s C:%s H:%s X%02lX"', DIAG_SOURCE
+            '"LM STATE X0.3.18 F:%s C:%s H:%s X%02lX"', DIAG_SOURCE
         )
         self.assertIn("LMState::crossRoomGuardCode()", DIAG_SOURCE)
         self.assertIn(
@@ -588,6 +622,9 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn("0xB0u, 0xB1u", DIAG_SOURCE)
         self.assertIn("0xC0u, 0xC1u", DIAG_SOURCE)
         self.assertIn("0xD0u, 0xD1u", DIAG_SOURCE)
+        self.assertIn("postLoadDetail(0xE0u, site, target);", DIAG_SOURCE)
+        self.assertIn("postLoadDetail(0xE1u, site, target);", DIAG_SOURCE)
+        self.assertEqual(DIAG_SOURCE.count("DEFINE_UPDATE_CALL(diagnostic"), 34)
 
     def test_post_load_trace_spans_multiple_restored_frames(self) -> None:
         self.assertIn("kPostLoadTraceFrameLimit = 8u", STATE_SOURCE)

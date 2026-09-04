@@ -270,7 +270,7 @@ void drawPanel(void *directPrint, void *xfb, const HeapSample &system,
         directPrint, 0, kPanelTop, 320, panelHeight);
     reinterpret_cast<DirectPrintDrawStringFn>(kDirectPrintDrawStringAddr)(
         directPrint, 2, kPanelTop + 2u,
-        "LM STATE X0.3.17 F:%s C:%s H:%s X%02lX",
+        "LM STATE X0.3.18 F:%s C:%s H:%s X%02lX",
         status(sFloorObserved, sFloorOk), status(sCanaryReady, sCanaryOk),
         status(sHeapCheckReady, sHeapCheckOk), LMState::crossRoomGuardCode());
     reinterpret_cast<DirectPrintDrawStringFn>(kDirectPrintDrawStringAddr)(
@@ -507,6 +507,56 @@ extern "C" void diagnosticSceneDraw(void *scene) {
     reinterpret_cast<VoidPtrFn>(callback)(scene);
     LMState::postLoadDetail(0xA5u, readWord(kLMMainDrawStateAddr), callback);
 }
+
+// MAIN GAME's first update after an accepted room rewind is the remaining
+// hard-lock window. One build traces every direct call so the ARM journal can
+// identify the exact retail subsystem even when no exception is raised.
+#define DEFINE_UPDATE_CALL(name, site, target)                              \
+    extern "C" u32 name(u32 a0, u32 a1, u32 a2, u32 a3, u32 a4, u32 a5, \
+                         u32 a6, u32 a7) {                                  \
+        LMState::postLoadDetail(0xE0u, site, target);                       \
+        const u32 result = reinterpret_cast<RetailCall8Fn>(target)(         \
+            a0, a1, a2, a3, a4, a5, a6, a7);                              \
+        LMState::postLoadDetail(0xE1u, site, target);                       \
+        return result;                                                      \
+    }
+
+DEFINE_UPDATE_CALL(diagnosticMainUpdateB930, 0x8000B930u, 0x8000EE30u)
+DEFINE_UPDATE_CALL(diagnosticMainUpdateB934, 0x8000B934u, 0x80057684u)
+DEFINE_UPDATE_CALL(diagnosticMainUpdateB938, 0x8000B938u, 0x8000C650u)
+DEFINE_UPDATE_CALL(diagnosticMainUpdateB948, 0x8000B948u, 0x80186E48u)
+DEFINE_UPDATE_CALL(diagnosticMainUpdateB94C, 0x8000B94Cu, 0x8000C72Cu)
+DEFINE_UPDATE_CALL(diagnosticMainUpdateB958, 0x8000B958u, 0x8003DB50u)
+DEFINE_UPDATE_CALL(diagnosticMainUpdateB974, 0x8000B974u, 0x8000C238u)
+DEFINE_UPDATE_CALL(diagnosticMainUpdateB978, 0x8000B978u, 0x8000C368u)
+DEFINE_UPDATE_CALL(diagnosticMainUpdateB97C, 0x8000B97Cu, 0x8000C8B8u)
+DEFINE_UPDATE_CALL(diagnosticMainUpdateB980, 0x8000B980u, 0x8000CB2Cu)
+DEFINE_UPDATE_CALL(diagnosticMainUpdateB984, 0x8000B984u, 0x8000CCACu)
+DEFINE_UPDATE_CALL(diagnosticMainUpdateB988, 0x8000B988u, 0x8000CC2Cu)
+DEFINE_UPDATE_CALL(diagnosticMainUpdateB9B8, 0x8000B9B8u, 0x80061A48u)
+DEFINE_UPDATE_CALL(diagnosticMainUpdateB9D4, 0x8000B9D4u, 0x80011274u)
+DEFINE_UPDATE_CALL(diagnosticMainUpdateB9D8, 0x8000B9D8u, 0x8002BBD0u)
+DEFINE_UPDATE_CALL(diagnosticMainUpdateB9DC, 0x8000B9DCu, 0x800461C8u)
+DEFINE_UPDATE_CALL(diagnosticMainUpdateB9E0, 0x8000B9E0u, 0x80037B60u)
+DEFINE_UPDATE_CALL(diagnosticMainUpdateB9E4, 0x8000B9E4u, 0x80043B34u)
+DEFINE_UPDATE_CALL(diagnosticMainUpdateB9E8, 0x8000B9E8u, 0x80123200u)
+DEFINE_UPDATE_CALL(diagnosticMainUpdateB9EC, 0x8000B9ECu, 0x80143AD8u)
+DEFINE_UPDATE_CALL(diagnosticMainUpdateB9F0, 0x8000B9F0u, 0x8005FF8Cu)
+DEFINE_UPDATE_CALL(diagnosticMainUpdateB9F4, 0x8000B9F4u, 0x80010FB8u)
+DEFINE_UPDATE_CALL(diagnosticMainUpdateB9FC, 0x8000B9FCu, 0x80011274u)
+DEFINE_UPDATE_CALL(diagnosticMainUpdateBA00, 0x8000BA00u, 0x800B8478u)
+DEFINE_UPDATE_CALL(diagnosticMainUpdateBA10, 0x8000BA10u, 0x801851A4u)
+DEFINE_UPDATE_CALL(diagnosticMainUpdateBA14, 0x8000BA14u, 0x80160D58u)
+DEFINE_UPDATE_CALL(diagnosticMainUpdateBA20, 0x8000BA20u, 0x8015E434u)
+DEFINE_UPDATE_CALL(diagnosticMainUpdateBA24, 0x8000BA24u, 0x8005EB90u)
+DEFINE_UPDATE_CALL(diagnosticMainUpdateBA28, 0x8000BA28u, 0x80060744u)
+DEFINE_UPDATE_CALL(diagnosticMainUpdateBA2C, 0x8000BA2Cu, 0x80070F60u)
+DEFINE_UPDATE_CALL(diagnosticMainUpdateBA30, 0x8000BA30u, 0x8011D988u)
+DEFINE_UPDATE_CALL(diagnosticMainUpdateBA34, 0x8000BA34u, 0x80156AD0u)
+DEFINE_UPDATE_CALL(diagnosticMainUpdateBA38, 0x8000BA38u, 0x8012EAC0u)
+DEFINE_UPDATE_CALL(diagnosticMainUpdateBA3C, 0x8000BA3Cu, 0x8012B0F4u)
+
+#undef DEFINE_UPDATE_CALL
 
 // The draw routines use ordinary EABI calls. Forwarding all eight volatile
 // argument registers keeps each diagnostic wrapper transparent even where the

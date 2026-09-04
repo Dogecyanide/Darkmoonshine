@@ -14,7 +14,7 @@ unmodified.
 The overlay rows are:
 
 ```text
-LM STATE X0.3.17 F:<floor> C:<canary> H:<heap check> X<cross-room guard>
+LM STATE X0.3.18 F:<floor> C:<canary> H:<heap check> X<cross-room guard>
 S:<state status> ST<stable frames> SZ<snapshot KiB> G:<gate> <gate value>
 E:<first epoch field> M<mismatch mask> <saved value>><live value>
 V:<topology> S<saved count>>L<live count> -<removed> +<added> F<save>/<live fault>
@@ -166,8 +166,13 @@ its full archive-pointer pair followed by complete entry hashes. Model fault `1`
 changed while the bounded copy was being verified. No model table is restored
 and no epoch gate was relaxed in that diagnostic build.
 
-Version `0.3.17` is the first aggressive cross-room raw-rewind attempt. It adds
-the fixed state identified by the `0.3.14` captures to the snapshot:
+Version `0.3.18` keeps the aggressive cross-room raw-rewind attempt from
+`0.3.17`. It adds one-pass tracing around every direct call in `MAIN GAME`'s
+update routine. Both initial `0.3.17` cross-room tests completed the restore
+and then hard-locked inside that routine before the next framebuffer was
+presented; the final `E0`/`E1` journal record now gives the precise callsite
+and retail target responsible. The snapshot includes the fixed state identified
+by the `0.3.14` captures:
 
 ```text
 803435AC-80346AE4  primary model descriptors
@@ -211,14 +216,11 @@ The invocation containing the load can only emit `97` because tracing was not
 armed at its entry. A final `97` isolates the following scene-table virtual
 call.
 
-For the first `0.3.17` hardware pass, confirm several same-room restores, then
-repeat the two captured resource shapes: save at the foyer bottom and load at
-the top, then save immediately before a foyer door and load after entering it.
-Record whether `S:LOADED` appears, whether the saved frame is visible, and
-whether play remains stable for at least a minute and through the next door.
-Photograph the complete panel for any `EPOCH`, and preserve the newest crash
-report or `/ndebug.log` after a crash or hard lock. Wider room and floor tests
-should wait until these two bounded cases are repeatable.
+For the `0.3.18` hardware pass, repeat either known failing resource shape:
+save at the foyer bottom and load at the top, or save immediately before a
+foyer door and load after entering it. After a hard lock, preserve
+`/ndebug.log`; its final `E0` record identifies the update call that was
+entered and did not return, while a final `E1` proves that call completed.
 
 Build the Homebrew Channel package with:
 
