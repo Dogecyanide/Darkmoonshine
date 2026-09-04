@@ -11,16 +11,26 @@ unavailable. The launcher authenticates the clean DOL layout and
 every hook word before it copies or patches anything; another revision runs
 unmodified.
 
-The eleven overlay rows are:
+The overlay rows are:
 
 ```text
-LM STATE X0.3.13 F:<floor> C:<canary> H:<heap check>
+LM STATE X0.3.14 F:<floor> C:<canary> H:<heap check>
 S:<state status> ST<stable frames> SZ<snapshot KiB> G:<gate> <gate value>
 E:<first epoch field> M<mismatch mask> <saved value>><live value>
 V:<topology> S<saved count>>L<live count> -<removed> +<added> F<save>/<live fault>
-V-/+<archive name> O:<object owner> B:<backing owner> <object address>
-V-/+<archive name> O:<object owner> B:<backing owner> <object address>
+V-<archive name> <object>/<backing owner> O<object> R<RARC> <size bytes>
+V-<archive name> <object>/<backing owner> O<object> R<RARC> <size bytes>
+V-<archive name> <object>/<backing owner> O<object> R<RARC> <size bytes>
+V+<archive name> <object>/<backing owner> O<object> R<RARC> <size bytes>
+V+<archive name> <object>/<backing owner> O<object> R<RARC> <size bytes>
+V+<archive name> <object>/<backing owner> O<object> R<RARC> <size bytes>
+VR O<object reuse mask> R<RARC reuse mask>
 VC <saved current volume>><live current volume> D<saved dir>><live dir>
+RM F<save/live fault> A<active mask> R<record mask> L<layout> G<map> K<backing> M<marks>
+RA <slot>:<saved active ID>><live active ID> <slot>:<saved ID>><live ID>
+RW <saved/live wanted count> -<removed> +<added> Q<sequence change> <first removed>><first added>
+MM F<save/live fault> N<changed indices> P<saved/live primary hash> R<saved/live registry hash>
+M<index><P/R/B> <name> S<saved/live state> H<saved/live handle> R<saved/live parsed root>
 ROOT <root> <start>-<end>
 SYS  <system> L/T/M <largest>/<total>/<minimum total KiB>
 GAME <game>   L/T/M <largest>/<total>/<minimum total KiB>
@@ -114,6 +124,37 @@ The `Fsave/live` values are zero for valid censuses. Nonzero faults are:
 1 capacity  2 empty/header  3 endpoint  4 node  5 parent list  6 object
 7 embedded link  8 previous link  9 duplicate  10 tail  11 end  12 changed
 ```
+
+Version `0.3.14` reserves separate rows for the first three removed and first
+three added archives, adds each archive object's RARC header and size, and
+reports object/RARC allocation reuse. It also captures a generation-keyed,
+read-only census of LM's seven-slot streamed room-archive manager. `A` and `R`
+are seven-bit slot mismatch masks; `L` and `G` report manager-layout and room
+map changes; `K` flags fixed backing-pointer invariant failures; and `M` shows
+transient reconcile marks. `RA` identifies the first two changed active slots,
+while `RW` compares the bounded wanted-room set and flags any exact ordered
+sequence change with `Q`. This room manager is separate from the model-archive owners named by the
+`V` rows. Resource faults are:
+
+```text
+1 slot count  2 wanted capacity  3 record range  4 bulk range  5 slot size
+```
+
+The same version also takes a generation-keyed, read-only census of the two
+262-entry model-resource tables at `0x803435AC-0x80346AE4` and
+`0x8037EC70-0x80382DF0`. Those tables own the lifecycle state behind model
+archives such as `tenjyo`, `bat`, `rat`, and `door`; they are distinct from the
+seven-slot `RM` room streamer. `MM` gives the saved/live census faults, the
+number of model indices whose complete entries changed, and whole-table hashes.
+The next four rows identify the first changes by model name. `P`, `R`, and `B`
+mean the primary descriptor, secondary registry, or both changed. On `P`/`B`
+rows, state values are `0` unloaded, `1` load pending, `2` cancel pending, and
+`3` loaded/parsed. `H` is the low 25 bits of its archive/load handle and `R` is
+the low 25 bits of its parsed model root; that preserves every variable bit of
+a MEM1 address. Names are capped at eight characters. A registry-only row instead shows
+its full archive-pointer pair followed by complete entry hashes. Model fault `1` means a table
+changed while the bounded copy was being verified. No model table is restored
+and no epoch gate is relaxed in this diagnostic build.
 
 If the inner game loop exits during that window, `96/97` identify loop
 entry/return, `98/99` bracket outer cleanup, and `9A/9B` bracket its restart.

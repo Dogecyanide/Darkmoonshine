@@ -256,6 +256,9 @@ void drawPanel(void *directPrint, void *xfb, const HeapSample &system,
     const u32 rootEnd = rootReadable ? readWord(root + 0x34u) : 0;
     const u32 current = readWord(kJKRCurrentHeapAddr);
     const u32 group = isExpHeapPointer(current) ? readByte(current + 0x69u) : 0;
+    const bool showModel = LMState::status() == LMState::Status::Epoch;
+    const u16 panelHeight = showModel ? 174u : 138u;
+    const u16 rootTop = showModel ? 142u : 107u;
 
     // JUTDirectPrint writes its built-in 6x7 font straight into the copied
     // YUYV framebuffer.  It has no resource-font or heap dependency.  At a
@@ -264,10 +267,10 @@ void drawPanel(void *directPrint, void *xfb, const HeapSample &system,
         kDirectPrintChangeFrameBufferAddr)(directPrint, xfb, kXfbWidth,
                                             kXfbHeight);
     reinterpret_cast<DirectPrintEraseFn>(kDirectPrintEraseAddr)(
-        directPrint, 0, kPanelTop, 320, 82);
+        directPrint, 0, kPanelTop, 320, panelHeight);
     reinterpret_cast<DirectPrintDrawStringFn>(kDirectPrintDrawStringAddr)(
         directPrint, 2, kPanelTop + 2u,
-        "LM STATE X0.3.13 F:%s C:%s H:%s",
+        "LM STATE X0.3.14 F:%s C:%s H:%s",
         status(sFloorObserved, sFloorOk), status(sCanaryReady, sCanaryOk),
         status(sHeapCheckReady, sHeapCheckOk));
     reinterpret_cast<DirectPrintDrawStringFn>(kDirectPrintDrawStringAddr)(
@@ -286,27 +289,109 @@ void drawPanel(void *directPrint, void *xfb, const HeapSample &system,
         LMState::volumeSavedCount(), LMState::volumeLiveCount(),
         LMState::volumeRemovedCount(), LMState::volumeAddedCount(),
         LMState::volumeSavedFault(), LMState::volumeLiveFault());
+    for (u32 i = 0; i < 6u; ++i) {
+        if (LMState::volumeChangeObject(i) == 0u) continue;
+        reinterpret_cast<DirectPrintDrawStringFn>(kDirectPrintDrawStringAddr)(
+            directPrint, 2, kPanelTop + 30u + i * 7u,
+            "V%s%s %s/%s O%08lX R%08lX %luB",
+            LMState::volumeChangeKind(i), LMState::volumeChangeName(i),
+            LMState::volumeChangeObjectOwnerText(i),
+            LMState::volumeChangeBackingOwnerText(i),
+            LMState::volumeChangeObject(i), LMState::volumeChangeArchive(i),
+            LMState::volumeChangeBytes(i));
+    }
     reinterpret_cast<DirectPrintDrawStringFn>(kDirectPrintDrawStringAddr)(
-        directPrint, 2, kPanelTop + 30u,
-        "V%s%s O:%s B:%s %08lX", LMState::volumeChangeKind(0u),
-        LMState::volumeChangeName(0u),
-        LMState::volumeChangeObjectOwnerText(0u),
-        LMState::volumeChangeBackingOwnerText(0u),
-        LMState::volumeChangeObject(0u));
+        directPrint, 2, kPanelTop + 72u,
+        "VR O%02lX R%02lX", LMState::volumeObjectReuseMask(),
+        LMState::volumeArchiveReuseMask());
     reinterpret_cast<DirectPrintDrawStringFn>(kDirectPrintDrawStringAddr)(
-        directPrint, 2, kPanelTop + 37u,
-        "V%s%s O:%s B:%s %08lX", LMState::volumeChangeKind(1u),
-        LMState::volumeChangeName(1u),
-        LMState::volumeChangeObjectOwnerText(1u),
-        LMState::volumeChangeBackingOwnerText(1u),
-        LMState::volumeChangeObject(1u));
-    reinterpret_cast<DirectPrintDrawStringFn>(kDirectPrintDrawStringAddr)(
-        directPrint, 2, kPanelTop + 44u,
+        directPrint, 2, kPanelTop + 79u,
         "VC %08lX>%08lX D%08lX>%08lX", LMState::volumeSavedCurrent(),
         LMState::volumeLiveCurrent(), LMState::volumeSavedDir(),
         LMState::volumeLiveDir());
     reinterpret_cast<DirectPrintDrawStringFn>(kDirectPrintDrawStringAddr)(
-        directPrint, 2, kPanelTop + 51u,
+        directPrint, 2, kPanelTop + 86u,
+        "RM F%lu/%lu A%02lX R%02lX L%lu G%lu K%02lX/%02lX M%02lX/%02lX",
+        LMState::resourceSavedFault(), LMState::resourceLiveFault(),
+        LMState::resourceActiveMismatchMask(),
+        LMState::resourceRecordMismatchMask(),
+        LMState::resourceLayoutChanged(), LMState::resourceMapChanged(),
+        LMState::resourceSavedBackingBadMask(),
+        LMState::resourceLiveBackingBadMask(),
+        LMState::resourceSavedMarkMask(), LMState::resourceLiveMarkMask());
+    const u32 activeSlot0 = LMState::resourceActiveChangeSlot(0u);
+    const u32 activeSlot1 = LMState::resourceActiveChangeSlot(1u);
+    if (activeSlot1 < 7u) {
+        reinterpret_cast<DirectPrintDrawStringFn>(
+            kDirectPrintDrawStringAddr)(
+            directPrint, 2, kPanelTop + 93u,
+            "RA %lu:%08lX>%08lX %lu:%08lX>%08lX", activeSlot0,
+            LMState::resourceActiveSavedId(0u),
+            LMState::resourceActiveLiveId(0u), activeSlot1,
+            LMState::resourceActiveSavedId(1u),
+            LMState::resourceActiveLiveId(1u));
+    } else if (activeSlot0 < 7u) {
+        reinterpret_cast<DirectPrintDrawStringFn>(
+            kDirectPrintDrawStringAddr)(
+            directPrint, 2, kPanelTop + 93u, "RA %lu:%08lX>%08lX",
+            activeSlot0, LMState::resourceActiveSavedId(0u),
+            LMState::resourceActiveLiveId(0u));
+    } else {
+        reinterpret_cast<DirectPrintDrawStringFn>(
+            kDirectPrintDrawStringAddr)(directPrint, 2, kPanelTop + 93u,
+                                        "RA NONE");
+    }
+    reinterpret_cast<DirectPrintDrawStringFn>(kDirectPrintDrawStringAddr)(
+        directPrint, 2, kPanelTop + 100u,
+        "RW %lu>%lu -%lu +%lu Q%lu %08lX>%08lX",
+        LMState::resourceSavedWantedCount(),
+        LMState::resourceLiveWantedCount(),
+        LMState::resourceWantedRemovedCount(),
+        LMState::resourceWantedAddedCount(),
+        LMState::resourceWantedSequenceChanged(),
+        LMState::resourceWantedRemovedId(0u),
+        LMState::resourceWantedAddedId(0u));
+    if (showModel) {
+        reinterpret_cast<DirectPrintDrawStringFn>(
+            kDirectPrintDrawStringAddr)(
+            directPrint, 2, kPanelTop + 107u,
+            "MM F%lu/%lu N%lu P%08lX>%08lX R%08lX>%08lX",
+            LMState::modelSavedFault(), LMState::modelLiveFault(),
+            LMState::modelChangedCount(), LMState::modelSavedSignature(),
+            LMState::modelLiveSignature(),
+            LMState::modelSavedRegistrySignature(),
+            LMState::modelLiveRegistrySignature());
+        for (u32 i = 0; i < 4u; ++i) {
+            const u32 modelIndex = LMState::modelChangeIndex(i);
+            if (modelIndex >= 262u) continue;
+            const char *kind = LMState::modelChangeKind(i);
+            if (kind[0] == 'R') {
+                reinterpret_cast<DirectPrintDrawStringFn>(
+                    kDirectPrintDrawStringAddr)(
+                    directPrint, 2, kPanelTop + 114u + i * 7u,
+                    "M%03luR %s %08lX>%08lX %08lX>%08lX", modelIndex,
+                    LMState::modelChangeName(i),
+                    LMState::modelChangeSavedHandle(i),
+                    LMState::modelChangeLiveHandle(i),
+                    LMState::modelChangeSavedRegistrySignature(i),
+                    LMState::modelChangeLiveRegistrySignature(i));
+            } else {
+                reinterpret_cast<DirectPrintDrawStringFn>(
+                    kDirectPrintDrawStringAddr)(
+                    directPrint, 2, kPanelTop + 114u + i * 7u,
+                    "M%03lu%s %s S%lX>%lX H%07lX>%07lX R%07lX>%07lX",
+                    modelIndex, kind, LMState::modelChangeName(i),
+                    LMState::modelChangeSavedState(i) & 0xFu,
+                    LMState::modelChangeLiveState(i) & 0xFu,
+                    LMState::modelChangeSavedHandle(i) & 0x1FFFFFFu,
+                    LMState::modelChangeLiveHandle(i) & 0x1FFFFFFu,
+                    LMState::modelChangeSavedRoot(i) & 0x1FFFFFFu,
+                    LMState::modelChangeLiveRoot(i) & 0x1FFFFFFu);
+            }
+        }
+    }
+    reinterpret_cast<DirectPrintDrawStringFn>(kDirectPrintDrawStringAddr)(
+        directPrint, 2, kPanelTop + rootTop,
         "ROOT %08lX %08lX-%08lX\n"
         "SYS  %08lX L/T/M %lu/%lu/%luK\n"
         "GAME %08lX L/T/M %lu/%lu/%luK\n"

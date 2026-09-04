@@ -67,6 +67,11 @@ constexpr u32 kGameStaticRootGlobals[] = {
 constexpr u32 kVolumeListGlobal = 0x80494754u;
 constexpr u32 kCurrentVolumeGlobal = 0x804A2038u;
 constexpr u32 kCurrentDirIdGlobal = 0x804A2040u;
+constexpr u32 kResourceRecordBaseGlobal = 0x804A0D08u;
+constexpr u32 kResourceBulkBaseGlobal = 0x804A0D0Cu;
+constexpr u32 kResourceSlotCountGlobal = 0x804A0D10u;
+constexpr u32 kResourceSlotSizeGlobal = 0x804A0D14u;
+constexpr u32 kResourceWantedCountGlobal = 0x804A0D18u;
 constexpr u32 kPadStatusGlobal = 0x80494778u;
 constexpr u32 kDvdOutstandingGlobal = 0x80391D98u;
 constexpr u32 kAramList0Global = 0x804946F4u;
@@ -175,6 +180,10 @@ constexpr u16 kDPadRight = 0x0002u;
 constexpr u32 kRequiredStableFrames = 3u;
 constexpr u32 kPostLoadTraceFrameLimit = 8u;
 constexpr u32 kMaxVolumes = 32u;
+constexpr u32 kVolumeRemovedSlots = 3u;
+constexpr u32 kVolumeAddedSlots = 3u;
+constexpr u32 kVolumeChangeRows =
+    kVolumeRemovedSlots + kVolumeAddedSlots;
 constexpr u32 kVolumeNameBytes = 16u;
 constexpr u32 kVolumeNameHashBytes = 32u;
 constexpr u32 kVolumeNameValid = 1u << 0;
@@ -189,6 +198,43 @@ constexpr u32 kVolumeArchiveOwnerShift = 4u;
 constexpr u32 kVolumeObjectLocationShift = 8u;
 constexpr u32 kVolumeBackingLocationShift = 12u;
 constexpr u32 kVolumeOwnerMask = 0xFu;
+constexpr u32 kResourceMapBase = 0x80398C50u;
+constexpr u32 kResourceMapSize = 0x200u;
+constexpr u32 kResourceActiveBase = 0x80398E90u;
+constexpr u32 kResourceBackingBase = 0x80398ECCu;
+constexpr u32 kResourceMarkBase = 0x80398F08u;
+constexpr u32 kResourceWantedBase = 0x80398F68u;
+constexpr u32 kResourceSlotCount = 7u;
+constexpr u32 kResourceWantedCapacity = 24u;
+constexpr u32 kResourceRecordSize = 0x40u;
+constexpr u32 kResourceSlotSize = 0x70800u;
+constexpr u32 kModelTableBase = 0x803435ACu;
+constexpr u32 kModelEntryCount = 262u;
+constexpr u32 kModelEntrySize = 0x34u;
+constexpr u32 kModelTableSize = kModelEntryCount * kModelEntrySize;
+constexpr u32 kModelRegistryBase = 0x8037EC70u;
+constexpr u32 kModelRegistryEntrySize = 0x40u;
+constexpr u32 kModelRegistrySize =
+    kModelEntryCount * kModelRegistryEntrySize;
+constexpr u32 kModelChangeSlots = 4u;
+constexpr u32 kModelNameBytes = 9u;
+constexpr u32 kModelPathLimit = 96u;
+constexpr u32 kModelChangedPrimary = 1u << 0;
+constexpr u32 kModelChangedRegistry = 1u << 1;
+
+enum ResourceFault : u32 {
+    kResourceFaultNone = 0u,
+    kResourceFaultSlotCount,
+    kResourceFaultWantedCount,
+    kResourceFaultRecords,
+    kResourceFaultBulk,
+    kResourceFaultSlotSize,
+};
+
+enum ModelFault : u32 {
+    kModelFaultNone = 0u,
+    kModelFaultChanged,
+};
 
 enum VolumeFault : u32 {
     kVolumeFaultNone = 0u,
@@ -464,12 +510,82 @@ struct VolumeDiff {
     u32 commonOrder;
     u32 headOnly;
     u32 currentChanged;
-    u32 removedIndices[2];
-    u32 addedIndices[2];
+    u32 removedIndices[kVolumeRemovedSlots];
+    u32 addedIndices[kVolumeAddedSlots];
+    u32 objectReuseMask;
+    u32 archiveReuseMask;
+};
+
+struct ResourceCensus {
+    u32 generation;
+    u32 valid;
+    u32 fault;
+    u32 slotCount;
+    u32 wantedCount;
+    u32 recordBase;
+    u32 bulkBase;
+    u32 slotSize;
+    u32 mapHash;
+    u32 markMask;
+    u32 backingBadMask;
+    u32 activeIds[kResourceSlotCount];
+    u32 recordHashes[kResourceSlotCount];
+    u32 wantedIds[kResourceWantedCapacity];
+};
+
+struct ResourceDiff {
+    u32 ready;
+    u32 savedValid;
+    u32 liveValid;
+    u32 activeMismatchMask;
+    u32 recordMismatchMask;
+    u32 layoutChanged;
+    u32 mapChanged;
+    u32 wantedSequenceChanged;
+    u32 wantedRemovedCount;
+    u32 wantedAddedCount;
+    u32 wantedRemovedIds[2];
+    u32 wantedAddedIds[2];
+};
+
+struct ModelCensus {
+    u32 generation;
+    u32 valid;
+    u32 fault;
+    u32 signature;
+    u32 registrySignature;
+    u32 words[kModelTableSize / sizeof(u32)];
+    u32 registryWords[kModelRegistrySize / sizeof(u32)];
+};
+
+struct ModelChange {
+    u32 index;
+    u32 sourceMask;
+    u32 savedHandle;
+    u32 liveHandle;
+    u32 savedState;
+    u32 liveState;
+    u32 savedRoot;
+    u32 liveRoot;
+    u32 savedRegistrySignature;
+    u32 liveRegistrySignature;
+    char name[kModelNameBytes];
+};
+
+struct ModelDiff {
+    u32 ready;
+    u32 savedValid;
+    u32 liveValid;
+    u32 changedCount;
+    ModelChange changes[kModelChangeSlots];
 };
 
 static_assert(sizeof(VolumeDescriptor) == 0x60u,
               "LM volume descriptor layout drifted");
+static_assert(kModelTableSize == 0x3538u,
+              "LM model descriptor table range drifted");
+static_assert(kModelRegistrySize == 0x4180u,
+              "LM model registry table range drifted");
 
 LMState::Status sStatus = LMState::Status::Empty;
 LiveIdentity sLastIdentity = {};
@@ -478,6 +594,12 @@ EpochMismatch sEpochMismatch = {};
 VolumeCensus sSavedVolumeCensus = {};
 VolumeCensus sLiveVolumeCensus = {};
 VolumeDiff sVolumeDiff = {};
+ResourceCensus sSavedResourceCensus = {};
+ResourceCensus sLiveResourceCensus = {};
+ResourceDiff sResourceDiff = {};
+ModelCensus sSavedModelCensus = {};
+ModelCensus sLiveModelCensus = {};
+ModelDiff sModelDiff = {};
 bool sHaveIdentity;
 bool sSlotInitialized;
 u32 sStableFrames;
@@ -1115,10 +1237,12 @@ s32 findVolume(const VolumeCensus &census,
 
 void clearVolumeDiff() {
     clearWords(&sVolumeDiff, sizeof(sVolumeDiff));
-    sVolumeDiff.removedIndices[0] = 0xFFFFFFFFu;
-    sVolumeDiff.removedIndices[1] = 0xFFFFFFFFu;
-    sVolumeDiff.addedIndices[0] = 0xFFFFFFFFu;
-    sVolumeDiff.addedIndices[1] = 0xFFFFFFFFu;
+    for (u32 i = 0; i < kVolumeRemovedSlots; ++i) {
+        sVolumeDiff.removedIndices[i] = 0xFFFFFFFFu;
+    }
+    for (u32 i = 0; i < kVolumeAddedSlots; ++i) {
+        sVolumeDiff.addedIndices[i] = 0xFFFFFFFFu;
+    }
 }
 
 void diffVolumeCensus(const VolumeCensus &saved,
@@ -1140,7 +1264,7 @@ void diffVolumeCensus(const VolumeCensus &saved,
 
     for (u32 i = 0; i < saved.count; ++i) {
         if (findVolume(live, saved.entries[i]) < 0) {
-            if (sVolumeDiff.removedCount < 2u) {
+            if (sVolumeDiff.removedCount < kVolumeRemovedSlots) {
                 sVolumeDiff.removedIndices[sVolumeDiff.removedCount] = i;
             }
             ++sVolumeDiff.removedCount;
@@ -1148,10 +1272,30 @@ void diffVolumeCensus(const VolumeCensus &saved,
     }
     for (u32 i = 0; i < live.count; ++i) {
         if (findVolume(saved, live.entries[i]) < 0) {
-            if (sVolumeDiff.addedCount < 2u) {
+            if (sVolumeDiff.addedCount < kVolumeAddedSlots) {
                 sVolumeDiff.addedIndices[sVolumeDiff.addedCount] = i;
             }
             ++sVolumeDiff.addedCount;
+        }
+    }
+
+    const u32 removedStored =
+        sVolumeDiff.removedCount < kVolumeRemovedSlots
+            ? sVolumeDiff.removedCount
+            : kVolumeRemovedSlots;
+    for (u32 removed = 0; removed < removedStored; ++removed) {
+        const VolumeDescriptor &oldEntry =
+            saved.entries[sVolumeDiff.removedIndices[removed]];
+        for (u32 liveIndex = 0; liveIndex < live.count; ++liveIndex) {
+            const VolumeDescriptor &newEntry = live.entries[liveIndex];
+            if (findVolume(saved, newEntry) >= 0) continue;
+            if (oldEntry.object == newEntry.object) {
+                sVolumeDiff.objectReuseMask |= 1u << removed;
+            }
+            if (oldEntry.archiveHeader != 0u &&
+                oldEntry.archiveHeader == newEntry.archiveHeader) {
+                sVolumeDiff.archiveReuseMask |= 1u << removed;
+            }
         }
     }
 
@@ -1191,9 +1335,353 @@ void commitSavedVolumeCensus(u32 generation) {
     sSavedVolumeCensus.generation = generation;
 }
 
+void failResourceCensus(ResourceCensus *census, u32 fault) {
+    census->fault = fault;
+    census->valid = 0u;
+}
+
+u32 hashResourceWords(u32 address, u32 size) {
+    u32 hash = 2166136261u;
+    for (u32 offset = 0u; offset < size; offset += sizeof(u32)) {
+        hash = hashVolumeWord(hash, readWord(address + offset));
+    }
+    return hash;
+}
+
+bool captureResourceCensus(ResourceCensus *census,
+                           const LiveIdentity &identity) {
+    clearWords(census, sizeof(*census));
+    census->slotCount = readByte(kResourceSlotCountGlobal);
+    census->wantedCount = readWord(kResourceWantedCountGlobal);
+    census->recordBase = readWord(kResourceRecordBaseGlobal);
+    census->bulkBase = readWord(kResourceBulkBaseGlobal);
+    census->slotSize = readWord(kResourceSlotSizeGlobal);
+
+    if (census->slotCount != kResourceSlotCount) {
+        failResourceCensus(census, kResourceFaultSlotCount);
+        return false;
+    }
+    if (census->wantedCount > kResourceWantedCapacity) {
+        failResourceCensus(census, kResourceFaultWantedCount);
+        return false;
+    }
+    if (!isMem1Range(census->recordBase,
+                     kResourceSlotCount * kResourceRecordSize) ||
+        classifyVolumeRange(census->recordBase,
+                            kResourceSlotCount * kResourceRecordSize,
+                            identity) != kVolumeOwnerGame) {
+        failResourceCensus(census, kResourceFaultRecords);
+        return false;
+    }
+    if (census->slotSize != kResourceSlotSize) {
+        failResourceCensus(census, kResourceFaultSlotSize);
+        return false;
+    }
+    if (!isMem1ByteRange(census->bulkBase,
+                         kResourceSlotCount * kResourceSlotSize) ||
+        classifyVolumeRange(census->bulkBase,
+                            kResourceSlotCount * kResourceSlotSize,
+                            identity) != kVolumeOwnerGame) {
+        failResourceCensus(census, kResourceFaultBulk);
+        return false;
+    }
+
+    census->mapHash = hashResourceWords(kResourceMapBase, kResourceMapSize);
+    for (u32 i = 0; i < kResourceSlotCount; ++i) {
+        census->activeIds[i] =
+            readWord(kResourceActiveBase + i * sizeof(u32));
+        census->recordHashes[i] = hashResourceWords(
+            census->recordBase + i * kResourceRecordSize,
+            kResourceRecordSize);
+        if (readWord(kResourceMarkBase + i * sizeof(u32)) != 0u) {
+            census->markMask |= 1u << i;
+        }
+        const u32 expectedBacking =
+            census->bulkBase + i * kResourceSlotSize;
+        if (readWord(kResourceBackingBase + i * sizeof(u32)) !=
+            expectedBacking) {
+            census->backingBadMask |= 1u << i;
+        }
+    }
+    for (u32 i = 0; i < census->wantedCount; ++i) {
+        const u32 id = readWord(kResourceWantedBase + i * sizeof(u32));
+        census->wantedIds[i] = id;
+    }
+    census->valid = 1u;
+    return true;
+}
+
+s32 findWantedResource(const ResourceCensus &census, u32 id) {
+    for (u32 i = 0; i < census.wantedCount; ++i) {
+        if (census.wantedIds[i] == id) {
+            return static_cast<s32>(i);
+        }
+    }
+    return -1;
+}
+
+void clearResourceDiff() {
+    clearWords(&sResourceDiff, sizeof(sResourceDiff));
+    for (u32 i = 0; i < 2u; ++i) {
+        sResourceDiff.wantedRemovedIds[i] = 0xFFFFFFFFu;
+        sResourceDiff.wantedAddedIds[i] = 0xFFFFFFFFu;
+    }
+}
+
+void diffResourceCensus(const ResourceCensus &saved,
+                        const ResourceCensus &live) {
+    clearResourceDiff();
+    sResourceDiff.ready = 1u;
+    sResourceDiff.savedValid = saved.valid;
+    sResourceDiff.liveValid = live.valid;
+    if (!saved.valid || !live.valid) {
+        return;
+    }
+
+    sResourceDiff.layoutChanged =
+        saved.slotCount != live.slotCount ||
+                saved.recordBase != live.recordBase ||
+                saved.bulkBase != live.bulkBase ||
+                saved.slotSize != live.slotSize
+            ? 1u
+            : 0u;
+    sResourceDiff.mapChanged = saved.mapHash != live.mapHash ? 1u : 0u;
+    if (saved.wantedCount != live.wantedCount) {
+        sResourceDiff.wantedSequenceChanged = 1u;
+    } else {
+        for (u32 i = 0; i < saved.wantedCount; ++i) {
+            if (saved.wantedIds[i] != live.wantedIds[i]) {
+                sResourceDiff.wantedSequenceChanged = 1u;
+                break;
+            }
+        }
+    }
+    for (u32 i = 0; i < kResourceSlotCount; ++i) {
+        if (saved.activeIds[i] != live.activeIds[i]) {
+            sResourceDiff.activeMismatchMask |= 1u << i;
+        }
+        if (saved.recordHashes[i] != live.recordHashes[i]) {
+            sResourceDiff.recordMismatchMask |= 1u << i;
+        }
+    }
+    for (u32 i = 0; i < saved.wantedCount; ++i) {
+        const u32 id = saved.wantedIds[i];
+        if (findWantedResource(live, id) < 0) {
+            if (sResourceDiff.wantedRemovedCount < 2u) {
+                sResourceDiff.wantedRemovedIds[
+                    sResourceDiff.wantedRemovedCount] = id;
+            }
+            ++sResourceDiff.wantedRemovedCount;
+        }
+    }
+    for (u32 i = 0; i < live.wantedCount; ++i) {
+        const u32 id = live.wantedIds[i];
+        if (findWantedResource(saved, id) < 0) {
+            if (sResourceDiff.wantedAddedCount < 2u) {
+                sResourceDiff.wantedAddedIds[
+                    sResourceDiff.wantedAddedCount] = id;
+            }
+            ++sResourceDiff.wantedAddedCount;
+        }
+    }
+}
+
+void commitSavedResourceCensus(u32 generation) {
+    sSavedResourceCensus.generation = 0u;
+    copyBytes(&sSavedResourceCensus, &sLiveResourceCensus,
+              sizeof(sSavedResourceCensus));
+    sSavedResourceCensus.generation = generation;
+}
+
+void failModelCensus(ModelCensus *census, u32 fault) {
+    census->fault = fault;
+    census->valid = 0u;
+}
+
+u32 hashModelWords(const u32 *words, u32 size) {
+    u32 hash = 2166136261u;
+    for (u32 i = 0; i < size / sizeof(u32); ++i) {
+        hash = hashVolumeWord(hash, words[i]);
+    }
+    return hash;
+}
+
+bool captureModelCensus(ModelCensus *census) {
+    clearWords(census, sizeof(*census));
+    const u32 tableBefore =
+        hashResourceWords(kModelTableBase, kModelTableSize);
+    const u32 registryBefore =
+        hashResourceWords(kModelRegistryBase, kModelRegistrySize);
+    copyWords(census->words, reinterpret_cast<const void *>(kModelTableBase),
+              kModelTableSize);
+    copyWords(census->registryWords,
+              reinterpret_cast<const void *>(kModelRegistryBase),
+              kModelRegistrySize);
+    const u32 tableAfter = hashResourceWords(kModelTableBase, kModelTableSize);
+    const u32 registryAfter =
+        hashResourceWords(kModelRegistryBase, kModelRegistrySize);
+    const u32 tableCopy = hashModelWords(census->words, kModelTableSize);
+    const u32 registryCopy =
+        hashModelWords(census->registryWords, kModelRegistrySize);
+    if (tableBefore != tableAfter || tableAfter != tableCopy ||
+        registryBefore != registryAfter || registryAfter != registryCopy) {
+        failModelCensus(census, kModelFaultChanged);
+        return false;
+    }
+    census->signature = tableCopy;
+    census->registrySignature = registryCopy;
+    census->valid = 1u;
+    return true;
+}
+
+u32 modelEntryWord(const ModelCensus &census, u32 index, u32 offset) {
+    return census.words[index * (kModelEntrySize / sizeof(u32)) +
+                        offset / sizeof(u32)];
+}
+
+bool sameModelEntry(const ModelCensus &saved, const ModelCensus &live,
+                    u32 index) {
+    const u32 first = index * (kModelEntrySize / sizeof(u32));
+    for (u32 i = 0; i < kModelEntrySize / sizeof(u32); ++i) {
+        if (saved.words[first + i] != live.words[first + i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+u32 modelRegistryWord(const ModelCensus &census, u32 index, u32 offset) {
+    return census.registryWords[
+        index * (kModelRegistryEntrySize / sizeof(u32)) +
+        offset / sizeof(u32)];
+}
+
+u32 modelRegistryEntrySignature(const ModelCensus &census, u32 index) {
+    const u32 first =
+        index * (kModelRegistryEntrySize / sizeof(u32));
+    return hashModelWords(&census.registryWords[first],
+                          kModelRegistryEntrySize);
+}
+
+bool sameModelRegistryEntry(const ModelCensus &saved,
+                            const ModelCensus &live, u32 index) {
+    const u32 first =
+        index * (kModelRegistryEntrySize / sizeof(u32));
+    for (u32 i = 0; i < kModelRegistryEntrySize / sizeof(u32); ++i) {
+        if (saved.registryWords[first + i] != live.registryWords[first + i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+void captureModelName(ModelChange *change, u32 path) {
+    change->name[0] = '?';
+    change->name[1] = '\0';
+    if (!isMem1ByteRange(path, 1u)) return;
+
+    u32 component = path;
+    bool terminated = false;
+    for (u32 i = 0; i < kModelPathLimit; ++i) {
+        if (!isMem1ByteRange(path + i, 1u)) return;
+        const u8 value = readByte(path + i);
+        if (value == 0u) {
+            terminated = true;
+            break;
+        }
+        if (value == '/' || value == '\\') {
+            component = path + i + 1u;
+        }
+    }
+    if (!terminated || !isMem1ByteRange(component, 1u)) return;
+
+    u32 length = 0u;
+    for (u32 i = 0; i < kModelPathLimit && length + 1u < kModelNameBytes;
+         ++i) {
+        if (!isMem1ByteRange(component + i, 1u)) return;
+        const u8 value = readByte(component + i);
+        if (value == 0u || value == '.') break;
+        change->name[length++] =
+            value >= 0x20u && value <= 0x7Eu
+                ? static_cast<char>(lowerAscii(value))
+                : '.';
+    }
+    if (length == 0u) {
+        change->name[0] = '?';
+        change->name[1] = '\0';
+    } else {
+        change->name[length] = '\0';
+    }
+}
+
+void clearModelDiff() {
+    clearWords(&sModelDiff, sizeof(sModelDiff));
+    for (u32 i = 0; i < kModelChangeSlots; ++i) {
+        sModelDiff.changes[i].index = 0xFFFFFFFFu;
+    }
+}
+
+void diffModelCensus(const ModelCensus &saved, const ModelCensus &live) {
+    clearModelDiff();
+    sModelDiff.ready = 1u;
+    sModelDiff.savedValid = saved.valid;
+    sModelDiff.liveValid = live.valid;
+    if (!saved.valid || !live.valid) return;
+
+    for (u32 i = 0; i < kModelEntryCount; ++i) {
+        const bool primaryChanged = !sameModelEntry(saved, live, i);
+        const bool registryChanged =
+            !sameModelRegistryEntry(saved, live, i);
+        if (!primaryChanged && !registryChanged) continue;
+        if (sModelDiff.changedCount < kModelChangeSlots) {
+            ModelChange &change =
+                sModelDiff.changes[sModelDiff.changedCount];
+            change.index = i;
+            change.sourceMask =
+                (primaryChanged ? kModelChangedPrimary : 0u) |
+                (registryChanged ? kModelChangedRegistry : 0u);
+            change.savedHandle =
+                primaryChanged ? modelEntryWord(saved, i, 0x04u)
+                               : modelRegistryWord(saved, i, 0x04u);
+            change.liveHandle =
+                primaryChanged ? modelEntryWord(live, i, 0x04u)
+                               : modelRegistryWord(live, i, 0x04u);
+            change.savedRoot = modelEntryWord(saved, i, 0x08u);
+            change.liveRoot = modelEntryWord(live, i, 0x08u);
+            change.savedState = modelEntryWord(saved, i, 0x30u);
+            change.liveState = modelEntryWord(live, i, 0x30u);
+            change.savedRegistrySignature =
+                modelRegistryEntrySignature(saved, i);
+            change.liveRegistrySignature =
+                modelRegistryEntrySignature(live, i);
+            const u32 savedPath = modelEntryWord(saved, i, 0x00u);
+            const u32 livePath = modelEntryWord(live, i, 0x00u);
+            captureModelName(&change, savedPath != 0u ? savedPath : livePath);
+        }
+        ++sModelDiff.changedCount;
+    }
+}
+
+void commitSavedModelCensus(u32 generation) {
+    sSavedModelCensus.generation = 0u;
+    copyBytes(&sSavedModelCensus, &sLiveModelCensus,
+              sizeof(sSavedModelCensus));
+    sSavedModelCensus.generation = generation;
+}
+
 void diagnoseVolumeEpoch(const SnapshotHeader *header,
                          const LiveIdentity &live, u32 mask) {
     clearVolumeDiff();
+    clearResourceDiff();
+    clearModelDiff();
+    if (sSavedResourceCensus.generation == header->generation) {
+        captureResourceCensus(&sLiveResourceCensus, live);
+        diffResourceCensus(sSavedResourceCensus, sLiveResourceCensus);
+    }
+    if (sSavedModelCensus.generation == header->generation) {
+        captureModelCensus(&sLiveModelCensus);
+        diffModelCensus(sSavedModelCensus, sLiveModelCensus);
+    }
     const u32 volumeMask = SUSAMUNE_LM_EPOCH_VOLUME_COUNT |
                            SUSAMUNE_LM_EPOCH_VOLUME_HEAD |
                            SUSAMUNE_LM_EPOCH_VOLUME_TAIL;
@@ -1459,6 +1947,12 @@ void initializeSlot() {
     clearWords(&sSavedVolumeCensus, sizeof(sSavedVolumeCensus));
     clearWords(&sLiveVolumeCensus, sizeof(sLiveVolumeCensus));
     clearVolumeDiff();
+    clearWords(&sSavedResourceCensus, sizeof(sSavedResourceCensus));
+    clearWords(&sLiveResourceCensus, sizeof(sLiveResourceCensus));
+    clearResourceDiff();
+    clearWords(&sSavedModelCensus, sizeof(sSavedModelCensus));
+    clearWords(&sLiveModelCensus, sizeof(sLiveModelCensus));
+    clearModelDiff();
     sSlotInitialized = true;
 }
 
@@ -1528,6 +2022,8 @@ bool savedPointerCompatible(u32 saved, u32 current,
 void saveState() {
     clearEpochMismatch();
     clearVolumeDiff();
+    clearResourceDiff();
+    clearModelDiff();
     traceSavePhase(0x01u, sStableFrames);
     LiveIdentity preflight;
     if (sStableFrames < kRequiredStableFrames ||
@@ -1570,6 +2066,8 @@ void saveState() {
         return;
     }
     captureVolumeCensus(&sLiveVolumeCensus, live);
+    captureResourceCensus(&sLiveResourceCensus, live);
+    captureModelCensus(&sLiveModelCensus);
 
     traceSavePhase(0x60u, live.heap);
     SnapshotHeader *header =
@@ -1659,6 +2157,8 @@ void saveState() {
     reinterpret_cast<CacheRangeFn>(kDCStoreRangeAddr)(header, 32u);
     asm volatile("sync" ::: "memory");
     commitSavedVolumeCensus(header->generation);
+    commitSavedResourceCensus(header->generation);
+    commitSavedModelCensus(header->generation);
     traceSavePhase(0x70u, live.heap);
     freezeEnd(freeze);
 
@@ -1671,6 +2171,8 @@ void saveState() {
 void loadState() {
     clearEpochMismatch();
     clearVolumeDiff();
+    clearResourceDiff();
+    clearModelDiff();
     traceLoadPhase(0x01u, sStableFrames);
     SnapshotHeader *header =
         reinterpret_cast<SnapshotHeader *>(kSnapshotBase);
@@ -1856,19 +2358,21 @@ void updateStability() {
 
 const VolumeDescriptor *volumeChangeEntry(u32 displayIndex, bool *added) {
     *added = false;
-    if (!sVolumeDiff.ready || displayIndex >= 2u) {
+    if (!sVolumeDiff.ready || displayIndex >= kVolumeChangeRows) {
         return nullptr;
     }
-    const u32 shownRemoved =
-        sVolumeDiff.removedCount < 2u ? sVolumeDiff.removedCount : 2u;
-    if (displayIndex < shownRemoved) {
+    if (displayIndex < kVolumeRemovedSlots) {
+        if (displayIndex >= sVolumeDiff.removedCount) {
+            return nullptr;
+        }
         const u32 index = sVolumeDiff.removedIndices[displayIndex];
         return index < sSavedVolumeCensus.count
                    ? &sSavedVolumeCensus.entries[index]
                    : nullptr;
     }
-    const u32 addedIndex = displayIndex - shownRemoved;
-    if (addedIndex < sVolumeDiff.addedCount && addedIndex < 2u) {
+    const u32 addedIndex = displayIndex - kVolumeRemovedSlots;
+    if (addedIndex < sVolumeDiff.addedCount &&
+        addedIndex < kVolumeAddedSlots) {
         const u32 index = sVolumeDiff.addedIndices[addedIndex];
         if (index < sLiveVolumeCensus.count) {
             *added = true;
@@ -2226,6 +2730,229 @@ u32 volumeChangeObject(u32 index) {
     bool added;
     const VolumeDescriptor *entry = volumeChangeEntry(index, &added);
     return entry ? entry->object : 0u;
+}
+
+u32 volumeChangeArchive(u32 index) {
+    bool added;
+    const VolumeDescriptor *entry = volumeChangeEntry(index, &added);
+    return entry ? entry->archiveHeader : 0u;
+}
+
+u32 volumeChangeBytes(u32 index) {
+    bool added;
+    const VolumeDescriptor *entry = volumeChangeEntry(index, &added);
+    return entry ? entry->fileLength : 0u;
+}
+
+u32 volumeObjectReuseMask() {
+    return sVolumeDiff.ready ? sVolumeDiff.objectReuseMask : 0u;
+}
+
+u32 volumeArchiveReuseMask() {
+    return sVolumeDiff.ready ? sVolumeDiff.archiveReuseMask : 0u;
+}
+
+u32 resourceSavedFault() {
+    return sResourceDiff.ready ? sSavedResourceCensus.fault : 0u;
+}
+
+u32 resourceLiveFault() {
+    return sResourceDiff.ready ? sLiveResourceCensus.fault : 0u;
+}
+
+u32 resourceActiveMismatchMask() {
+    return sResourceDiff.ready ? sResourceDiff.activeMismatchMask : 0u;
+}
+
+u32 resourceRecordMismatchMask() {
+    return sResourceDiff.ready ? sResourceDiff.recordMismatchMask : 0u;
+}
+
+u32 resourceLayoutChanged() {
+    return sResourceDiff.ready ? sResourceDiff.layoutChanged : 0u;
+}
+
+u32 resourceMapChanged() {
+    return sResourceDiff.ready ? sResourceDiff.mapChanged : 0u;
+}
+
+u32 resourceSavedBackingBadMask() {
+    return sResourceDiff.ready ? sSavedResourceCensus.backingBadMask : 0u;
+}
+
+u32 resourceLiveBackingBadMask() {
+    return sResourceDiff.ready ? sLiveResourceCensus.backingBadMask : 0u;
+}
+
+u32 resourceSavedMarkMask() {
+    return sResourceDiff.ready ? sSavedResourceCensus.markMask : 0u;
+}
+
+u32 resourceLiveMarkMask() {
+    return sResourceDiff.ready ? sLiveResourceCensus.markMask : 0u;
+}
+
+u32 resourceSavedWantedCount() {
+    return sResourceDiff.ready ? sSavedResourceCensus.wantedCount : 0u;
+}
+
+u32 resourceLiveWantedCount() {
+    return sResourceDiff.ready ? sLiveResourceCensus.wantedCount : 0u;
+}
+
+u32 resourceWantedRemovedCount() {
+    return sResourceDiff.ready ? sResourceDiff.wantedRemovedCount : 0u;
+}
+
+u32 resourceWantedAddedCount() {
+    return sResourceDiff.ready ? sResourceDiff.wantedAddedCount : 0u;
+}
+
+u32 resourceWantedSequenceChanged() {
+    return sResourceDiff.ready ? sResourceDiff.wantedSequenceChanged : 0u;
+}
+
+u32 resourceActiveChangeSlot(u32 index) {
+    if (!sResourceDiff.ready) return 0xFFu;
+    for (u32 slot = 0; slot < kResourceSlotCount; ++slot) {
+        if ((sResourceDiff.activeMismatchMask & (1u << slot)) != 0u) {
+            if (index == 0u) return slot;
+            --index;
+        }
+    }
+    return 0xFFu;
+}
+
+u32 resourceActiveSavedId(u32 index) {
+    const u32 slot = resourceActiveChangeSlot(index);
+    return slot < kResourceSlotCount
+               ? sSavedResourceCensus.activeIds[slot]
+               : 0xFFFFFFFFu;
+}
+
+u32 resourceActiveLiveId(u32 index) {
+    const u32 slot = resourceActiveChangeSlot(index);
+    return slot < kResourceSlotCount
+               ? sLiveResourceCensus.activeIds[slot]
+               : 0xFFFFFFFFu;
+}
+
+u32 resourceWantedRemovedId(u32 index) {
+    return sResourceDiff.ready && index < 2u &&
+                   index < sResourceDiff.wantedRemovedCount
+               ? sResourceDiff.wantedRemovedIds[index]
+               : 0xFFFFFFFFu;
+}
+
+u32 resourceWantedAddedId(u32 index) {
+    return sResourceDiff.ready && index < 2u &&
+                   index < sResourceDiff.wantedAddedCount
+               ? sResourceDiff.wantedAddedIds[index]
+               : 0xFFFFFFFFu;
+}
+
+u32 modelSavedFault() {
+    return sModelDiff.ready ? sSavedModelCensus.fault : 0u;
+}
+
+u32 modelLiveFault() {
+    return sModelDiff.ready ? sLiveModelCensus.fault : 0u;
+}
+
+u32 modelSavedSignature() {
+    return sModelDiff.ready ? sSavedModelCensus.signature : 0u;
+}
+
+u32 modelLiveSignature() {
+    return sModelDiff.ready ? sLiveModelCensus.signature : 0u;
+}
+
+u32 modelSavedRegistrySignature() {
+    return sModelDiff.ready ? sSavedModelCensus.registrySignature : 0u;
+}
+
+u32 modelLiveRegistrySignature() {
+    return sModelDiff.ready ? sLiveModelCensus.registrySignature : 0u;
+}
+
+u32 modelChangedCount() {
+    return sModelDiff.ready ? sModelDiff.changedCount : 0u;
+}
+
+u32 modelChangeIndex(u32 index) {
+    return sModelDiff.ready && index < kModelChangeSlots &&
+                   index < sModelDiff.changedCount
+               ? sModelDiff.changes[index].index
+               : 0xFFFFFFFFu;
+}
+
+const char *modelChangeKind(u32 index) {
+    if (modelChangeIndex(index) >= kModelEntryCount) return "?";
+    switch (sModelDiff.changes[index].sourceMask) {
+    case kModelChangedPrimary:
+        return "P";
+    case kModelChangedRegistry:
+        return "R";
+    case kModelChangedPrimary | kModelChangedRegistry:
+        return "B";
+    default:
+        return "?";
+    }
+}
+
+const char *modelChangeName(u32 index) {
+    return sModelDiff.ready && index < kModelChangeSlots &&
+                   index < sModelDiff.changedCount
+               ? sModelDiff.changes[index].name
+               : "--";
+}
+
+u32 modelChangeSavedState(u32 index) {
+    return modelChangeIndex(index) < kModelEntryCount
+               ? sModelDiff.changes[index].savedState
+               : 0u;
+}
+
+u32 modelChangeLiveState(u32 index) {
+    return modelChangeIndex(index) < kModelEntryCount
+               ? sModelDiff.changes[index].liveState
+               : 0u;
+}
+
+u32 modelChangeSavedRoot(u32 index) {
+    return modelChangeIndex(index) < kModelEntryCount
+               ? sModelDiff.changes[index].savedRoot
+               : 0u;
+}
+
+u32 modelChangeLiveRoot(u32 index) {
+    return modelChangeIndex(index) < kModelEntryCount
+               ? sModelDiff.changes[index].liveRoot
+               : 0u;
+}
+
+u32 modelChangeSavedHandle(u32 index) {
+    return modelChangeIndex(index) < kModelEntryCount
+               ? sModelDiff.changes[index].savedHandle
+               : 0u;
+}
+
+u32 modelChangeLiveHandle(u32 index) {
+    return modelChangeIndex(index) < kModelEntryCount
+               ? sModelDiff.changes[index].liveHandle
+               : 0u;
+}
+
+u32 modelChangeSavedRegistrySignature(u32 index) {
+    return modelChangeIndex(index) < kModelEntryCount
+               ? sModelDiff.changes[index].savedRegistrySignature
+               : 0u;
+}
+
+u32 modelChangeLiveRegistrySignature(u32 index) {
+    return modelChangeIndex(index) < kModelEntryCount
+               ? sModelDiff.changes[index].liveRegistrySignature
+               : 0u;
 }
 
 }  // namespace LMState

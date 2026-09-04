@@ -6,7 +6,7 @@ Mansion (`GLMJ01`).
 
 ## Current status
 
-`Full-State Experimental 0.3.13` is the current hardware-testable state build.
+`Full-State Experimental 0.3.14` is the current hardware-testable state build.
 
 - The custom Nintendont launcher accepts only the verified Japanese `GLMJ01`
   revision-0 executable for injection.
@@ -39,8 +39,11 @@ Mansion (`GLMJ01`).
   live values of the highest-priority mismatch on both the overlay and in
   `/ndebug.log`. This is diagnostic only; every compatibility gate remains on.
 - Volume-list refusals also walk and validate every mounted archive, preserve a
-  bounded save-time census outside the snapshot, and identify the first two
-  removed or added volumes with their object/backing heap ownership.
+  bounded save-time census outside the snapshot, and identify the first three
+  removed plus first three added volumes with object and RARC addresses.
+- A generation-keyed read-only census compares LM's seven streamed room-archive
+  slots, record contents, wanted-room set, and fixed backing layout across a
+  refused load. It does not weaken the restore gate.
 
 Controls are D-pad Left to save and D-pad Right to load. Start with same-room
 tests. This first build normally rejects a load with `EPOCH` after the room,
@@ -84,7 +87,7 @@ The build emits a version-labelled tester package plus a stable compatibility
 name:
 
 ```text
-build-lm-diag/Moonshine-Luigis-Mansion-Full-State-Experimental-0.3.13.zip
+build-lm-diag/Moonshine-Luigis-Mansion-Full-State-Experimental-0.3.14.zip
 build-lm-diag/moonshine_luigis_mansion_launcher.zip
 ```
 
@@ -108,7 +111,7 @@ disc or ISO.
 
 Back up any real memory-card data, install the four packaged files under
 `apps/moonshine_luigis_mansion/`, and launch a clean revision-0 GLMJ01 image.
-The overlay must say `LM STATE X0.3.13`; wait until `F`, `C`, `H`, and `G` are
+The overlay must say `LM STATE X0.3.14`; wait until `F`, `C`, `H`, and `G` are
 `OK` and `ST` is at least 3. If `ST` remains zero, photograph the short gate
 name and eight-digit value shown after `G:`; they identify the rejected live
 condition without weakening it.
@@ -124,11 +127,28 @@ can still show `E:NONE M00000000`.
 
 For a volume refusal, `V:` shows saved/live member counts, total removals and
 additions, and whether the live order is an exact saved-list suffix (`HEAD1`,
-`HEAD2`, or `HEADN`). The following two rows name the first changed archives;
-`O` classifies the object owner and `B` identifies the heap range containing
-the validated RARC backing bytes; both use game, system, root, or unknown.
-`VC` and `D` compare the current-volume pointer and directory ID. These rows
-are observational only and never weaken the restore gate.
+`HEAD2`, or `HEADN`). Six reserved rows show up to three removals followed by
+three additions. Each row gives object/backing ownership, the archive object
+(`O`), RARC header (`R`), and exact RARC size in bytes. `VR` marks saved removals whose
+object or RARC allocation was reused by an added archive; `VC` and `D` compare
+the current-volume pointer and directory ID.
+
+`RM` is LM's streamed room-archive manager. It compares the seven active room
+IDs (`A`), their complete 0x40-byte records (`R`), manager layout (`L`), the
+256-entry room map (`G`), fixed backing pointers (`K`), and transient reconcile
+marks (`M`). `RA` gives the first two changed active slots as
+`slot:saved>live`; `RW` compares the wanted-room set, reports any ordered
+sequence change as `Q`, and prints its first removed and added IDs. `FFFFFFFF` means that side has
+no displayed change. This manager is separate from the model archives named in
+the `V` rows. These rows are observational only and never weaken the restore
+gate.
+
+`MM` is the separate 262-entry model-resource owner used by archives such as
+`tenjyo`, `bat`, `rat`, and `door`. It compares both of LM's writable model
+tables, reports their saved/live hashes and the total number of changed model
+indices, then names the first four. `P`, `R`, or `B` after the index means the
+primary table, secondary registry, or both changed. These rows are also
+read-only: this build still refuses the cross-room restore cleanly.
 
 After same-room restores repeat reliably, an adjacent-room attempt should
 normally report `EPOCH`; a load that gets past that gate is explicitly unsafe

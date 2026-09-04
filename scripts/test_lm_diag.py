@@ -333,7 +333,7 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn("u32 epochLive()", STATE_SOURCE)
         self.assertIn("Susamune: epoch mask=%08X first=%s", KERNEL_CRASH_SOURCE)
         self.assertIn("LMEpochFieldName(mask)", KERNEL_CRASH_SOURCE)
-        self.assertIn("LM STATE X0.3.13", DIAG_SOURCE)
+        self.assertIn("LM STATE X0.3.14", DIAG_SOURCE)
         self.assertIn(
             '"E:%s M%08lX %08lX>%08lX"', DIAG_SOURCE
         )
@@ -359,12 +359,85 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn('return "HEAD1";', STATE_SOURCE)
         self.assertIn('return "HEAD2";', STATE_SOURCE)
         self.assertIn('"V:%s S%lu>L%lu -%lu +%lu F%lu/%lu"', DIAG_SOURCE)
-        self.assertIn('"V%s%s O:%s B:%s %08lX"', DIAG_SOURCE)
+        self.assertIn("kVolumeRemovedSlots = 3u", STATE_SOURCE)
+        self.assertIn("kVolumeAddedSlots = 3u", STATE_SOURCE)
+        self.assertIn('"V%s%s %s/%s O%08lX R%08lX %luB"', DIAG_SOURCE)
         self.assertIn('"VC %08lX>%08lX D%08lX>%08lX"', DIAG_SOURCE)
-        # 0.3.13 diagnoses the mismatch; the exact restore gate remains.
+        # 0.3.14 diagnoses the mismatch; the exact restore gate remains.
         self.assertIn("header->volume[0] == live.volume[0]", STATE_SOURCE)
         self.assertIn("header->volume[1] == live.volume[1]", STATE_SOURCE)
         self.assertIn("header->volume[2] == live.volume[2]", STATE_SOURCE)
+        self.assertIn("kSnapshotVersion = 6u", STATE_SOURCE)
+
+    def test_resource_manager_epoch_census_is_bounded_and_read_only(self) -> None:
+        self.assertIn("kResourceMapBase = 0x80398C50u", STATE_SOURCE)
+        self.assertIn("kResourceMapSize = 0x200u", STATE_SOURCE)
+        self.assertIn("kResourceActiveBase = 0x80398E90u", STATE_SOURCE)
+        self.assertIn("kResourceBackingBase = 0x80398ECCu", STATE_SOURCE)
+        self.assertIn("kResourceMarkBase = 0x80398F08u", STATE_SOURCE)
+        self.assertIn("kResourceWantedBase = 0x80398F68u", STATE_SOURCE)
+        self.assertIn("kResourceSlotCount = 7u", STATE_SOURCE)
+        self.assertIn("kResourceWantedCapacity = 24u", STATE_SOURCE)
+        self.assertIn("kResourceRecordSize = 0x40u", STATE_SOURCE)
+        self.assertIn("kResourceSlotSize = 0x70800u", STATE_SOURCE)
+        self.assertIn("bool captureResourceCensus", STATE_SOURCE)
+        self.assertIn("diffResourceCensus(sSavedResourceCensus", STATE_SOURCE)
+        self.assertIn("commitSavedResourceCensus(header->generation);", STATE_SOURCE)
+        self.assertIn("saved.wantedIds[i] != live.wantedIds[i]", STATE_SOURCE)
+        self.assertIn('"RM F%lu/%lu A%02lX R%02lX', DIAG_SOURCE)
+        self.assertIn('"RA %lu:%08lX>%08lX', DIAG_SOURCE)
+        self.assertIn('"RW %lu>%lu -%lu +%lu Q%lu', DIAG_SOURCE)
+        # This build observes external manager drift but still refuses it.
+        self.assertIn("header->volume[0] == live.volume[0]", STATE_SOURCE)
+
+    def test_model_manager_epoch_census_covers_both_fixed_tables(self) -> None:
+        self.assertIn("kModelTableBase = 0x803435ACu", STATE_SOURCE)
+        self.assertIn("kModelEntryCount = 262u", STATE_SOURCE)
+        self.assertIn("kModelEntrySize = 0x34u", STATE_SOURCE)
+        self.assertIn("kModelRegistryBase = 0x8037EC70u", STATE_SOURCE)
+        self.assertIn("kModelRegistryEntrySize = 0x40u", STATE_SOURCE)
+        self.assertIn("kModelTableSize == 0x3538u", STATE_SOURCE)
+        self.assertIn("kModelRegistrySize == 0x4180u", STATE_SOURCE)
+        self.assertEqual(0x803435AC + 262 * 0x34, 0x80346AE4)
+        self.assertEqual(0x8037EC70 + 262 * 0x40, 0x80382DF0)
+        self.assertIn("bool captureModelCensus", STATE_SOURCE)
+        self.assertIn("sameModelEntry(saved, live, i)", STATE_SOURCE)
+        self.assertIn("sameModelRegistryEntry(saved, live, i)", STATE_SOURCE)
+        self.assertIn("captureModelName(&change", STATE_SOURCE)
+        self.assertIn("modelEntryWord(saved, i, 0x08u)", STATE_SOURCE)
+        self.assertIn("diffModelCensus(sSavedModelCensus", STATE_SOURCE)
+        self.assertIn("commitSavedModelCensus(header->generation);", STATE_SOURCE)
+        self.assertIn('return "P";', STATE_SOURCE)
+        self.assertIn('return "R";', STATE_SOURCE)
+        self.assertIn('return "B";', STATE_SOURCE)
+        self.assertIn(
+            '"MM F%lu/%lu N%lu P%08lX>%08lX R%08lX>%08lX"',
+            DIAG_SOURCE,
+        )
+        self.assertIn(
+            '"M%03lu%s %s S%lX>%lX H%07lX>%07lX R%07lX>%07lX"',
+            DIAG_SOURCE,
+        )
+        self.assertIn('"M%03luR %s %08lX>%08lX %08lX>%08lX"', DIAG_SOURCE)
+        self.assertIn("const u16 panelHeight = showModel ? 174u : 138u", DIAG_SOURCE)
+        self.assertIn("const u16 rootTop = showModel ? 142u : 107u", DIAG_SOURCE)
+        self.assertIn("directPrint, 0, kPanelTop, 320, panelHeight", DIAG_SOURCE)
+        self.assertIn("directPrint, 2, kPanelTop + rootTop", DIAG_SOURCE)
+        primary_row = (
+            f"M{261:03d}B {'x' * 8} SF>F H{0x1FFFFFF:07X}>{0x1FFFFFF:07X} "
+            f"R{0x1FFFFFF:07X}>{0x1FFFFFF:07X}"
+        )
+        registry_row = (
+            f"M{261:03d}R {'x' * 8} {0xFFFFFFFF:08X}>{0xFFFFFFFF:08X} "
+            f"{0xFFFFFFFF:08X}>{0xFFFFFFFF:08X}"
+        )
+        self.assertLessEqual(len(primary_row), 53)
+        self.assertLessEqual(len(registry_row), 53)
+        # The new tables are observed, not copied into the savestate or used
+        # to bypass the existing volume epoch gate.
+        self.assertNotIn("{kModelTableBase, kModelTableSize}", STATE_SOURCE)
+        self.assertNotIn("{kModelRegistryBase, kModelRegistrySize}", STATE_SOURCE)
+        self.assertIn("header->volume[0] == live.volume[0]", STATE_SOURCE)
         self.assertIn("kSnapshotVersion = 6u", STATE_SOURCE)
 
     def test_state_quiesces_audio_and_scheduler(self) -> None:
