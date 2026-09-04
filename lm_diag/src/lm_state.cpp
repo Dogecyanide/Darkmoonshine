@@ -1741,7 +1741,7 @@ void diagnoseVolumeEpoch(const SnapshotHeader *header,
     diffVolumeCensus(sSavedVolumeCensus, sLiveVolumeCensus);
 }
 
-bool frontVolumeReplacementMatches() {
+bool orderedVolumeReplacementMatches() {
     const u32 removed = sVolumeDiff.removedCount;
     const u32 added = sVolumeDiff.addedCount;
     if (!sVolumeDiff.ready || !sVolumeDiff.savedValid ||
@@ -1758,25 +1758,65 @@ bool frontVolumeReplacementMatches() {
     if (savedCommon == 0u || savedCommon != liveCommon) {
         return false;
     }
+
+    // The room-owned archives are inserted around long-lived JKR volumes, not
+    // necessarily as one leading block.  Validate the recorded change indices
+    // and compare the exact ordered common subsequence after filtering them.
     for (u32 i = 0; i < removed; ++i) {
-        if (sVolumeDiff.removedIndices[i] != i) return false;
-    }
-    for (u32 i = 0; i < added; ++i) {
-        if (sVolumeDiff.addedIndices[i] != i) return false;
-    }
-    for (u32 i = 0; i < savedCommon; ++i) {
-        if (!sameVolumeDescriptor(sSavedVolumeCensus.entries[removed + i],
-                                  sLiveVolumeCensus.entries[added + i])) {
+        const u32 index = sVolumeDiff.removedIndices[i];
+        if (index >= sSavedVolumeCensus.count ||
+            (i != 0u && index <= sVolumeDiff.removedIndices[i - 1u])) {
             return false;
         }
     }
-    return true;
+    for (u32 i = 0; i < added; ++i) {
+        const u32 index = sVolumeDiff.addedIndices[i];
+        if (index >= sLiveVolumeCensus.count ||
+            (i != 0u && index <= sVolumeDiff.addedIndices[i - 1u])) {
+            return false;
+        }
+    }
+
+    u32 savedIndex = 0u;
+    u32 liveIndex = 0u;
+    u32 removedIndex = 0u;
+    u32 addedIndex = 0u;
+    u32 commonCount = 0u;
+    while (savedIndex < sSavedVolumeCensus.count ||
+           liveIndex < sLiveVolumeCensus.count) {
+        if (removedIndex < removed &&
+            sVolumeDiff.removedIndices[removedIndex] == savedIndex) {
+            ++removedIndex;
+            ++savedIndex;
+            continue;
+        }
+        if (addedIndex < added &&
+            sVolumeDiff.addedIndices[addedIndex] == liveIndex) {
+            ++addedIndex;
+            ++liveIndex;
+            continue;
+        }
+        if (savedIndex >= sSavedVolumeCensus.count ||
+            liveIndex >= sLiveVolumeCensus.count ||
+            !sameVolumeDescriptor(sSavedVolumeCensus.entries[savedIndex],
+                                  sLiveVolumeCensus.entries[liveIndex])) {
+            return false;
+        }
+        ++commonCount;
+        ++savedIndex;
+        ++liveIndex;
+    }
+    return removedIndex == removed && addedIndex == added &&
+           commonCount == savedCommon;
 }
 
 bool changedArchiveIsRewindable(const VolumeDescriptor &entry,
                                 const LiveIdentity &identity) {
-    const u32 requiredFlags = kVolumeArchiveValid | kVolumeRarcValid |
-                              kVolumeMounted | kVolumeOpen;
+    // +0x64 on JKRMemArchive is the caller-selected break/ownership mode, not
+    // a mounted-buffer validity requirement.  The RARC, mount flag, backing
+    // range, and heap ownership below are the useful rewind invariants.
+    const u32 requiredFlags =
+        kVolumeArchiveValid | kVolumeRarcValid | kVolumeMounted;
     const u32 objectLocation =
         (entry.ownerFlags >> kVolumeObjectLocationShift) & kVolumeOwnerMask;
     const u32 backingLocation =
@@ -1801,8 +1841,8 @@ bool changedModelWordsAreKnown(u32 index) {
             continue;
         }
         const u32 offset = word * sizeof(u32);
-        if (offset != 0x04u && offset != 0x08u && offset != 0x2Cu &&
-            offset != 0x30u) {
+        if (offset != 0x04u && offset != 0x08u && offset != 0x0Cu &&
+            offset != 0x14u && offset != 0x2Cu && offset != 0x30u) {
             return false;
         }
     }
@@ -1823,10 +1863,14 @@ bool changedModelWordsAreKnown(u32 index) {
     return true;
 }
 
-bool matchChangedVolumeObject(const VolumeCensus &census, u32 count,
+bool matchChangedVolumeObject(const VolumeCensus &census,
+                              const u32 *changedIndices, u32 count,
                               u32 object, u32 *matchedMask) {
     for (u32 i = 0u; i < count; ++i) {
-        if (census.entries[i].object != object) continue;
+        const u32 index = changedIndices[i];
+        if (index >= census.count || census.entries[index].object != object) {
+            continue;
+        }
         const u32 bit = 1u << i;
         if ((*matchedMask & bit) != 0u) return false;
         *matchedMask |= bit;
@@ -1877,7 +1921,8 @@ bool modelReplacementMatches() {
 
         if (change.savedState == 3u && change.liveState == 0u &&
             change.savedHandle != 0u && change.liveHandle == 0u) {
-            if (!matchChangedVolumeObject(sSavedVolumeCensus, removed,
+            if (!matchChangedVolumeObject(sSavedVolumeCensus,
+                                          sVolumeDiff.removedIndices, removed,
                                           change.savedHandle,
                                           &matchedRemoved)) {
                 return false;
@@ -1885,7 +1930,8 @@ bool modelReplacementMatches() {
         } else if (change.savedState == 0u && change.liveState == 3u &&
                    change.savedHandle == 0u &&
                    change.liveHandle != 0u) {
-            if (!matchChangedVolumeObject(sLiveVolumeCensus, added,
+            if (!matchChangedVolumeObject(sLiveVolumeCensus,
+                                          sVolumeDiff.addedIndices, added,
                                           change.liveHandle,
                                           &matchedAdded)) {
                 return false;
@@ -1927,17 +1973,22 @@ bool guardedCrossRoomRestoreAllowed(const SnapshotHeader *header,
     }
 
     sCrossRoomGuard = kCrossRoomGuardTopology;
-    if (!frontVolumeReplacementMatches()) return false;
+    if (!orderedVolumeReplacementMatches()) return false;
 
     sCrossRoomGuard = kCrossRoomGuardArchive;
     for (u32 i = 0u; i < sVolumeDiff.removedCount; ++i) {
-        if (!changedArchiveIsRewindable(sSavedVolumeCensus.entries[i],
+        const u32 index = sVolumeDiff.removedIndices[i];
+        if (index >= sSavedVolumeCensus.count ||
+            !changedArchiveIsRewindable(sSavedVolumeCensus.entries[index],
                                         live)) {
             return false;
         }
     }
     for (u32 i = 0u; i < sVolumeDiff.addedCount; ++i) {
-        if (!changedArchiveIsRewindable(sLiveVolumeCensus.entries[i], live)) {
+        const u32 index = sVolumeDiff.addedIndices[i];
+        if (index >= sLiveVolumeCensus.count ||
+            !changedArchiveIsRewindable(sLiveVolumeCensus.entries[index],
+                                        live)) {
             return false;
         }
     }

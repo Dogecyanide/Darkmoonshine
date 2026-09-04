@@ -334,7 +334,7 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn("Susamune: epoch mask=%08X first=%s", KERNEL_CRASH_SOURCE)
         self.assertIn("LMEpochFieldName(mask)", KERNEL_CRASH_SOURCE)
         self.assertIn(
-            '"LM STATE X0.3.15 F:%s C:%s H:%s X%02lX"', DIAG_SOURCE
+            '"LM STATE X0.3.16 F:%s C:%s H:%s X%02lX"', DIAG_SOURCE
         )
         self.assertIn("LMState::crossRoomGuardCode()", DIAG_SOURCE)
         self.assertIn(
@@ -472,12 +472,28 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         )
         self.assertIn("if (mismatch.mask != allowedMask) return false;", guard)
         self.assertEqual((1 << 7) | (1 << 8), 0x180)
-        self.assertIn("frontVolumeReplacementMatches()", guard)
+        self.assertIn("orderedVolumeReplacementMatches()", guard)
+        self.assertIn("sVolumeDiff.removedIndices[i]", guard)
+        self.assertIn("sVolumeDiff.addedIndices[i]", guard)
         self.assertIn("changedArchiveIsRewindable", guard)
         self.assertIn("sResourceDiff.mapChanged != 0u", guard)
         self.assertIn("sSavedResourceCensus.markMask != 0u", guard)
         self.assertIn("sLiveResourceCensus.markMask != 0u", guard)
         self.assertIn("modelReplacementMatches()", guard)
+
+        topology = STATE_SOURCE.split(
+            "bool orderedVolumeReplacementMatches", 1
+        )[1].split("bool changedArchiveIsRewindable", 1)[0]
+        self.assertNotIn("removedIndices[i] != i", topology)
+        self.assertNotIn("addedIndices[i] != i", topology)
+        self.assertIn("sSavedVolumeCensus.entries[savedIndex]", topology)
+        self.assertIn("sLiveVolumeCensus.entries[liveIndex]", topology)
+
+        model = STATE_SOURCE.split(
+            "bool modelReplacementMatches", 1
+        )[1].split("bool guardedCrossRoomRestoreAllowed", 1)[0]
+        self.assertIn("sVolumeDiff.removedIndices, removed", model)
+        self.assertIn("sVolumeDiff.addedIndices, added", model)
 
         self.assertIn("kResourceStateEnd = 0x80398FC8u", STATE_SOURCE)
         self.assertIn("kResourceStateEnd - kResourceMapBase == 0x378u",

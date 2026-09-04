@@ -14,7 +14,7 @@ unmodified.
 The overlay rows are:
 
 ```text
-LM STATE X0.3.15 F:<floor> C:<canary> H:<heap check> X<cross-room guard>
+LM STATE X0.3.16 F:<floor> C:<canary> H:<heap check> X<cross-room guard>
 S:<state status> ST<stable frames> SZ<snapshot KiB> G:<gate> <gate value>
 E:<first epoch field> M<mismatch mask> <saved value>><live value>
 V:<topology> S<saved count>>L<live count> -<removed> +<added> F<save>/<live fault>
@@ -166,7 +166,7 @@ its full archive-pointer pair followed by complete entry hashes. Model fault `1`
 changed while the bounded copy was being verified. No model table is restored
 and no epoch gate was relaxed in that diagnostic build.
 
-Version `0.3.15` is the first guarded cross-room raw-rewind experiment. It adds
+Version `0.3.16` is the first guarded cross-room raw-rewind attempt. It adds
 the fixed state identified by the `0.3.14` captures to the snapshot:
 
 ```text
@@ -189,8 +189,9 @@ Same-room loads still require an exact epoch match. The experimental
 cross-room exception requires the epoch mismatch mask to be exactly
 `M00000180`: only mounted-volume count and head may differ; the list tail and
 all other identity fields must remain exact. It then requires a valid
-generation-matched census, an exact common saved-list suffix with no more than
-four total leading removals/additions, game-heap ownership for every changed
+generation-matched census, an exact ordered common-list subsequence with no
+more than four total removals/additions at arbitrary list positions,
+game-heap ownership for every changed
 archive object and RARC backing, stable current-volume/directory values, valid
 room-manager layout and backing pointers with no reconcile marks, and at most
 four model changes with no load/cancel-pending state. A failed condition keeps
@@ -210,7 +211,7 @@ The invocation containing the load can only emit `97` because tracing was not
 armed at its entry. A final `97` isolates the following scene-table virtual
 call.
 
-For the first `0.3.15` hardware pass, confirm several same-room restores, then
+For the first `0.3.16` hardware pass, confirm several same-room restores, then
 repeat the two captured resource shapes: save at the foyer bottom and load at
 the top, then save immediately before a foyer door and load after entering it.
 Record whether `S:LOADED` appears, whether the saved frame is visible, and

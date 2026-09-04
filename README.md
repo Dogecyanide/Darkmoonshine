@@ -6,7 +6,7 @@ Mansion (`GLMJ01`).
 
 ## Current status
 
-`Full-State Experimental 0.3.15` is the current hardware-testable state build.
+`Full-State Experimental 0.3.16` is the current hardware-testable state build.
 
 - The custom Nintendont launcher accepts only the verified Japanese `GLMJ01`
   revision-0 executable for injection.
@@ -54,7 +54,7 @@ Mansion (`GLMJ01`).
 Controls are D-pad Left to save and D-pad Right to load. Confirm same-room
 restores first, then repeat the two bounded tests that produced the 0.3.14
 captures: save at the foyer bottom and load at the top, followed by save before
-a foyer door and load after it. `0.3.15` may attempt those restores instead of
+a foyer door and load after it. `0.3.16` may attempt those restores instead of
 returning `EPOCH`; a successful load is evidence for this specific resource
 shape, not general cross-room support. Any different room, floor, transition,
 or asynchronous state is expected to refuse safely. This remains a crash-risk
@@ -96,7 +96,7 @@ The build emits a version-labelled tester package plus a stable compatibility
 name:
 
 ```text
-build-lm-diag/Moonshine-Luigis-Mansion-Full-State-Experimental-0.3.15.zip
+build-lm-diag/Moonshine-Luigis-Mansion-Full-State-Experimental-0.3.16.zip
 build-lm-diag/moonshine_luigis_mansion_launcher.zip
 ```
 
@@ -120,7 +120,7 @@ disc or ISO.
 
 Back up any real memory-card data, install the four packaged files under
 `apps/moonshine_luigis_mansion/`, and launch a clean revision-0 GLMJ01 image.
-The overlay must start with `LM STATE X0.3.15`; wait until `F`, `C`, `H`, and
+The overlay must start with `LM STATE X0.3.16`; wait until `F`, `C`, `H`, and
 `G` are `OK` and `ST` is at least 3. The trailing `X` byte reports the guarded
 cross-room path: `X00` means it has not been attempted, `XA0` means it passed,
 and `X01` through `X08` identify the refusal stage: epoch mask, saved-census
