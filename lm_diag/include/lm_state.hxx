@@ -25,6 +25,7 @@ void tick();
 // exact update-call tracing without journaling every quiet frame.
 void postLoadMilestone(u32 phase);
 void postLoadDetail(u32 phase, u32 arg0, u32 arg1);
+bool postLoadDetailEnabled();
 void presenterEnter();
 void presenterAfterSample();
 void presenterAfterDrawDone();

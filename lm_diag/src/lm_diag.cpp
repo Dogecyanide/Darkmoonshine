@@ -33,6 +33,8 @@ const u32 kLMMainSceneStepAddr = 0x8000B248u;
 const u32 kLMMainDrawStateAddr = 0x804A0C44u;
 const u32 kLMAnimatedModelPoolGlobal = 0x804A0E48u;
 const u32 kLMAnimatedModelControllerPoolGlobal = 0x804A0E4Cu;
+const u32 kLMRoomActorTable = 0x803C8490u;
+const u32 kLMRoomActorCount = 0x804A12B8u;
 const u32 kLMAnimatedModelPoolUpdateAddr = 0x80026750u;
 const u32 kLMAnimatedModelControllerUpdateAddr = 0x8001EA84u;
 const u32 kLMDefaultOrthoViewAddr = 0x800078FCu;
@@ -65,6 +67,7 @@ const u32 kAnimatedModelSlotSize = 0x11Cu;
 const u32 kAnimatedModelControllerSize = 0x318u;
 const u32 kAnimatedModelPrimaryCapacity = 16u;
 const u32 kAnimatedModelSecondaryCapacity = 10u;
+const u32 kRoomActorCapacity = 0x80u;
 const u32 kCanary[4] = {
     0x474C4D4Au,  // GLMJ
     0x4D454D31u,  // MEM1
@@ -285,7 +288,7 @@ void drawPanel(void *directPrint, void *xfb, const HeapSample &system,
         directPrint, 0, kPanelTop, 320, panelHeight);
     reinterpret_cast<DirectPrintDrawStringFn>(kDirectPrintDrawStringAddr)(
         directPrint, 2, kPanelTop + 2u,
-        "LM STATE X0.3.24 F:%s C:%s H:%s X%02lX",
+        "LM STATE X0.3.25 F:%s C:%s H:%s X%02lX",
         status(sFloorObserved, sFloorOk), status(sCanaryReady, sCanaryOk),
         status(sHeapCheckReady, sHeapCheckOk), LMState::crossRoomGuardCode());
     reinterpret_cast<DirectPrintDrawStringFn>(kDirectPrintDrawStringAddr)(
@@ -714,7 +717,71 @@ DEFINE_UPDATE_CALL(diagnosticMainUpdateBA34, 0x8000BA34u, 0x80156AD0u)
 DEFINE_UPDATE_CALL(diagnosticMainUpdateBA38, 0x8000BA38u, 0x8012EAC0u)
 DEFINE_UPDATE_CALL(diagnosticMainUpdateBA3C, 0x8000BA3Cu, 0x8012B0F4u)
 
+// Split the fixed effect-controller dispatcher. These children wake when
+// movement creates dust and other room effects, after idle restored frames.
+DEFINE_UPDATE_CALL(diagnosticEffectUpdate0, 0x80160D74u, 0x80162838u)
+DEFINE_UPDATE_CALL(diagnosticEffectUpdate1, 0x80160D7Cu, 0x80177870u)
+DEFINE_UPDATE_CALL(diagnosticEffectUpdate2, 0x80160D84u, 0x8016B3A4u)
+DEFINE_UPDATE_CALL(diagnosticEffectUpdate3, 0x80160D8Cu, 0x8016BEC4u)
+DEFINE_UPDATE_CALL(diagnosticEffectUpdate4, 0x80160D94u, 0x8016E380u)
+DEFINE_UPDATE_CALL(diagnosticEffectUpdate5, 0x80160D9Cu, 0x8016E7A0u)
+DEFINE_UPDATE_CALL(diagnosticEffectUpdate6, 0x80160DA4u, 0x8016F778u)
+DEFINE_UPDATE_CALL(diagnosticEffectTail0, 0x80156AE4u, 0x8016D204u)
+DEFINE_UPDATE_CALL(diagnosticEffectTail1, 0x80156AF0u, 0x80155118u)
+DEFINE_UPDATE_CALL(diagnosticEffectTail2, 0x80156AF4u, 0x8014FC50u)
+DEFINE_UPDATE_CALL(diagnosticEffectTail3, 0x80156AF8u, 0x8013479Cu)
+DEFINE_UPDATE_CALL(diagnosticEffectList0, 0x8012B120u, 0x8016D204u)
+DEFINE_UPDATE_CALL(diagnosticEffectList1, 0x8012B12Cu, 0x8016D204u)
+DEFINE_UPDATE_CALL(diagnosticEffectList2, 0x8012B148u, 0x8016D204u)
+
 #undef DEFINE_UPDATE_CALL
+
+u32 roomActorIndex(u32 actor) {
+    u32 count = readWord(kLMRoomActorCount);
+    if (count > kRoomActorCapacity) {
+        count = kRoomActorCapacity;
+    }
+    for (u32 index = 0u; index < count; ++index) {
+        if (readWord(kLMRoomActorTable + index * sizeof(u32)) == actor) {
+            return index;
+        }
+    }
+    return 0xFFFFu;
+}
+
+// The actor table is restored, but a stale actor-owned pointer may stay
+// dormant until collision or movement reaches one of these nine passes.
+#define DEFINE_ACTOR_UPDATE_CALL(name, pass, target)                        \
+    extern "C" u32 name(u32 a0, u32 a1, u32 a2, u32 a3, u32 a4, u32 a5, \
+                         u32 a6, u32 a7) {                                  \
+        const bool traced = LMState::postLoadDetailEnabled();              \
+        u32 descriptor = 0u;                                                \
+        u32 vtable = 0u;                                                    \
+        if (traced) {                                                       \
+            const u32 index = roomActorIndex(a0);                           \
+            descriptor = (pass << 16) | index;                             \
+            vtable = isMem1Pointer(a0) ? readWord(a0) : 0u;                \
+            LMState::postLoadDetail(0xF2u, descriptor, a0);                 \
+        }                                                                  \
+        const u32 result = reinterpret_cast<RetailCall8Fn>(target)(         \
+            a0, a1, a2, a3, a4, a5, a6, a7);                              \
+        if (traced) {                                                       \
+            LMState::postLoadDetail(0xF3u, descriptor, vtable);             \
+        }                                                                  \
+        return result;                                                      \
+    }
+
+DEFINE_ACTOR_UPDATE_CALL(diagnosticActorUpdate0, 0u, 0x80068804u)
+DEFINE_ACTOR_UPDATE_CALL(diagnosticActorUpdate1, 1u, 0x800688E4u)
+DEFINE_ACTOR_UPDATE_CALL(diagnosticActorUpdate2, 2u, 0x800689A0u)
+DEFINE_ACTOR_UPDATE_CALL(diagnosticActorUpdate3, 3u, 0x80068A88u)
+DEFINE_ACTOR_UPDATE_CALL(diagnosticActorUpdate4, 4u, 0x80068C18u)
+DEFINE_ACTOR_UPDATE_CALL(diagnosticActorUpdate5, 5u, 0x80067174u)
+DEFINE_ACTOR_UPDATE_CALL(diagnosticActorUpdate6, 6u, 0x800672A0u)
+DEFINE_ACTOR_UPDATE_CALL(diagnosticActorUpdate7, 7u, 0x80067750u)
+DEFINE_ACTOR_UPDATE_CALL(diagnosticActorUpdate8, 8u, 0x80067254u)
+
+#undef DEFINE_ACTOR_UPDATE_CALL
 
 // The draw routines use ordinary EABI calls. Forwarding all eight volatile
 // argument registers keeps each diagnostic wrapper transparent even where the

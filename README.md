@@ -6,7 +6,7 @@ Mansion (`GLMJ01`).
 
 ## Current status
 
-`Full-State Experimental 0.3.24` is the current hardware-testable state build.
+`Full-State Experimental 0.3.25` is the current hardware-testable state build.
 
 - The custom Nintendont launcher accepts only the verified Japanese `GLMJ01`
   revision-0 executable for injection.
@@ -22,6 +22,7 @@ Mansion (`GLMJ01`).
   heap pointers, room/door visibility masks, the complete room event/text
   interpreter and request, the room actor-pointer table, the fixed
   room-streamer and model-resource tables, the active-event bitmap, the
+  fixed scene-effect controller/list state,
   mounted-volume list header, and libc RNG state. The fade controller's
   embedded `J2DPicture` remains live;
   the three persistent camera-view objects receive a guarded sidecar only if
@@ -34,21 +35,27 @@ Mansion (`GLMJ01`).
   required replacement bootstrap handle, then holds the OS scheduler while
   only lock-free snapshot work runs.
 - Moonshine's ARM crash writer now accepts LM exception reports and rotates
-  `susamune_crash_a/b.bin` plus readable `.txt` reports on the game-source
+  `susamune_crash_a/b.bin` plus readable `.txt` reports on the launcher's
   storage device.
 - A cache-coherent phase journal records the last completed save/load step in
   `/ndebug.log`, even when the PowerPC hard-locks and no exception is raised.
+- GLMJ builds also create `/lm_dumps` and rotate two compact binary attempt
+  journals. A successful save starts the next generation; every phase the ARM
+  observes afterward is synced without copying the MEM2 snapshot.
 - State requests run after LM's complete framebuffer/retrace routine, matching
   Moonshine's proven post-draw timing. Additional journal markers split the
   first restored draw into matrix, scene-callback, and projection stages, then
   identify the exact direct renderer call if the callback does not return.
 - Post-load tracing records eight complete restored frames, then keeps a
   low-rate two-minute tail. A successful save during that tail refreshes its
-  deadline. A fresh A-button press opens a 240-frame door watch: the initiating
-  `MAIN GAME` update is traced exactly, and changes in room, scene, streaming,
-  resource, or archive state re-arm exact tracing for two updates. An armed
-  trace now continues through the fade controller, audio callbacks, draw,
-  presenter, and loop tail so a hard lock cannot hide after `MAIN GAME`.
+  deadline. Stick movement beyond the diagnostic deadzone or any button change
+  now traces the current and following `MAIN GAME` updates; a fresh A-button
+  press additionally
+  opens a 240-frame door watch. Changes in room, scene, streaming, resource, or
+  archive state re-arm exact tracing for two updates. An armed trace continues
+  through effect and room-actor passes, the fade controller, audio callbacks,
+  draw, presenter, and loop tail so a delayed movement failure has an exact
+  last completed call.
 - Cross-room checks retain a complete 22-field epoch mask plus the saved and
   live values of the highest-priority mismatch on both the overlay and in
   `/ndebug.log`.
@@ -80,12 +87,16 @@ Mansion (`GLMJ01`).
   were paired with destination-room activation flags. Cross-room restores
   also discard completed DVD request payload pointers and restart LM's
   64-entry request ring while both original OS workers and queues remain live.
+- Snapshot format 14, introduced by `0.3.25`, adds the fixed scene-effect
+  controller state at `0x803CE0F0-0x803CEB00`. Its list sentinels, pointer
+  vectors, and active counts now rewind with their gameplay-heap nodes; the
+  following destructor and asynchronous queue records remain live.
 
 Controls are D-pad Left to save and D-pad Right to load. Confirm a same-room
 restore first. For the focused cross-room test, save outside the intended foyer
 door, enter it and wait until Luigi is controllable, load back outside, then
 touch that same door again. Report whether both the door animation and room
-load complete. `0.3.24` may attempt this restore instead of returning `EPOCH`;
+load complete. `0.3.25` may attempt this restore instead of returning `EPOCH`;
 a successful load is evidence for this specific resource shape, not general
 cross-room support. Any different room, floor, transition, or asynchronous
 state is expected to refuse safely. This remains a crash-risk feasibility
@@ -127,7 +138,7 @@ The build emits a version-labelled tester package plus a stable compatibility
 name:
 
 ```text
-build-lm-diag/Moonshine-Luigis-Mansion-Full-State-Experimental-0.3.24.zip
+build-lm-diag/Moonshine-Luigis-Mansion-Full-State-Experimental-0.3.25.zip
 build-lm-diag/moonshine_luigis_mansion_launcher.zip
 ```
 
@@ -151,7 +162,7 @@ disc or ISO.
 
 Back up any real memory-card data, install the four packaged files under
 `apps/moonshine_luigis_mansion/`, and launch a clean revision-0 GLMJ01 image.
-The overlay must start with `LM STATE X0.3.24`; wait until `F`, `C`, `H`, and
+The overlay must start with `LM STATE X0.3.25`; wait until `F`, `C`, `H`, and
 `G` are `OK` and `ST` is at least 3. The trailing `X` byte reports the guarded
 cross-room path: `X00` means it has not been attempted, `XA0` means it passed,
 and `X01` through `X08` identify the refusal stage: epoch mask, saved-census
@@ -201,16 +212,30 @@ pass the guarded cross-room checks before a restore is attempted.
 After a same-room restore succeeds, save outside the intended foyer door,
 enter it and wait until Luigi is controllable, load back outside, then touch
 that same door again. Report separately whether the second door animation and
-the following room load complete. `S:LOADED` means the guarded raw rewind
-completed. `EPOCH` means the observed transition fell outside this
+the following room load complete. If re-entry succeeds, keep walking normally;
+the current target is the delayed failure that appeared only after a good room
+rewind. `S:LOADED` means the guarded raw rewind completed. `EPOCH` means the
+observed transition fell outside this
 experiment's accepted shape; photograph the full diagnostic panel rather than
 retrying through a different transition. If the game crashes, save the
-newest `susamune_crash_a.txt` or `susamune_crash_b.txt` from the game-source
-device before the next experiment overwrites the older rotating report.
-If it hard-locks or reboots without a new crash report, return the SD card and
-preserve `/ndebug.log`. For roughly two minutes after a load or later save, a
-normal A press at a door starts a four-second transition watch. Its final
-`Susamune: phase` line records the most recently sampled transition phase.
+newest `susamune_crash_a.txt` or `susamune_crash_b.txt` from the launcher's
+storage device before the next experiment overwrites the older rotating report.
+Whether it raises an exception, hard-locks, or reboots, return the SD card
+before making another successful state and preserve `/ndebug.log`, both
+`/lm_dumps/lm_attempt_a.bin` and `/lm_dumps/lm_attempt_b.bin`, and any fresh
+`susamune_crash_a/b.txt` report. The two attempt files retain the latest two
+successful-save generations, so another save may overwrite the older test.
+Decode either file or the whole directory without modifying it:
+
+```powershell
+.\venv\Scripts\python.exe scripts\read_lm_dump.py D:\lm_dumps
+```
+
+Replace `D:` with the SD card's drive letter. The parser marks the latest valid
+generation, prints every exact phase record, and reports a torn final record.
+For roughly two minutes after a load or later save, movement or a button change
+arms exact update tracing; a normal A press at a door also starts the four-second
+transition watch.
 
 ## Lineage and credits
 

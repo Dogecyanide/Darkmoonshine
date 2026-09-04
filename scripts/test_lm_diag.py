@@ -96,6 +96,29 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
                 (0x8000BA34, "diagnosticMainUpdateBA34", "BL", 0x4814B09D),
                 (0x8000BA38, "diagnosticMainUpdateBA38", "BL", 0x48123089),
                 (0x8000BA3C, "diagnosticMainUpdateBA3C", "BL", 0x4811F6B9),
+                (0x80160D74, "diagnosticEffectUpdate0", "BL", 0x48001AC5),
+                (0x80160D7C, "diagnosticEffectUpdate1", "BL", 0x48016AF5),
+                (0x80160D84, "diagnosticEffectUpdate2", "BL", 0x4800A621),
+                (0x80160D8C, "diagnosticEffectUpdate3", "BL", 0x4800B139),
+                (0x80160D94, "diagnosticEffectUpdate4", "BL", 0x4800D5ED),
+                (0x80160D9C, "diagnosticEffectUpdate5", "BL", 0x4800DA05),
+                (0x80160DA4, "diagnosticEffectUpdate6", "BL", 0x4800E9D5),
+                (0x80156AE4, "diagnosticEffectTail0", "BL", 0x48016721),
+                (0x80156AF0, "diagnosticEffectTail1", "BL", 0x4BFFE629),
+                (0x80156AF4, "diagnosticEffectTail2", "BL", 0x4BFF915D),
+                (0x80156AF8, "diagnosticEffectTail3", "BL", 0x4BFDDCA5),
+                (0x8012B120, "diagnosticEffectList0", "BL", 0x480420E5),
+                (0x8012B12C, "diagnosticEffectList1", "BL", 0x480420D9),
+                (0x8012B148, "diagnosticEffectList2", "BL", 0x480420BD),
+                (0x80060664, "diagnosticActorUpdate0", "BL", 0x480081A1),
+                (0x80060700, "diagnosticActorUpdate1", "BL", 0x480081E5),
+                (0x80060784, "diagnosticActorUpdate2", "BL", 0x4800821D),
+                (0x80060800, "diagnosticActorUpdate3", "BL", 0x48008289),
+                (0x800608E4, "diagnosticActorUpdate4", "BL", 0x48008335),
+                (0x80060918, "diagnosticActorUpdate5", "BL", 0x4800685D),
+                (0x8006094C, "diagnosticActorUpdate6", "BL", 0x48006955),
+                (0x80060980, "diagnosticActorUpdate7", "BL", 0x48006DD1),
+                (0x800609B0, "diagnosticActorUpdate8", "BL", 0x480068A5),
                 (0x8000BD1C, "diagnosticMainDrawBD1C", "BL", 0x480009E5),
                 (0x8000BD24, "diagnosticMainDrawBD24", "BL", 0x48000741),
                 (0x8000BD2C, "diagnosticMainDrawBD2C", "BL", 0x48000C41),
@@ -257,7 +280,7 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn("kHeapMetadataStart = 0x3Cu", STATE_SOURCE)
         self.assertIn("kHeapMetadataEnd = 0x84u", STATE_SOURCE)
         self.assertIn("kExpHeapAlignment = 16u", STATE_SOURCE)
-        self.assertIn("kSnapshotVersion = 13u", STATE_SOURCE)
+        self.assertIn("kSnapshotVersion = 14u", STATE_SOURCE)
         self.assertIn("kTransitionHeaderStateStart = 0x803985D4u", STATE_SOURCE)
         self.assertIn("kTransitionHeaderStateEnd = 0x803985E8u", STATE_SOURCE)
         self.assertIn("kTransitionTailStateStart = 0x80398764u", STATE_SOURCE)
@@ -346,6 +369,17 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
             STATE_SOURCE,
         )
         self.assertIn(
+            "kEffectControllerStateStart = 0x803CE0F0u", STATE_SOURCE
+        )
+        self.assertIn(
+            "kEffectControllerStateEnd = 0x803CEB00u", STATE_SOURCE
+        )
+        self.assertIn(
+            "{kEffectControllerStateStart,\n"
+            "     kEffectControllerStateEnd - kEffectControllerStateStart}",
+            STATE_SOURCE,
+        )
+        self.assertIn(
             "{kAnimatedModelOwnerStateStart,\n"
             "     kAnimatedModelOwnerStateEnd - kAnimatedModelOwnerStateStart}",
             STATE_SOURCE,
@@ -374,10 +408,10 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn("kGameSbss0End = 0x804A0C90u", STATE_SOURCE)
         self.assertIn("kGameSbss1Start = 0x804A0CB0u", STATE_SOURCE)
         self.assertIn("kGameSbss1End = 0x804A1D10u", STATE_SOURCE)
-        self.assertIn("kStateStaticsSize == 0x153C8u", STATE_SOURCE)
-        self.assertIn("kCameraObjectStateOffset == 0x15510u", STATE_SOURCE)
+        self.assertIn("kStateStaticsSize == 0x15DD8u", STATE_SOURCE)
+        self.assertIn("kCameraObjectStateOffset == 0x15F20u", STATE_SOURCE)
         self.assertIn("kCameraObjectStateSize == 0x300u", STATE_SOURCE)
-        self.assertIn("kHeapDataOffset == 0x15820u", STATE_SOURCE)
+        self.assertIn("kHeapDataOffset == 0x16220u", STATE_SOURCE)
         self.assertIn("roomActorCount > kRoomActorCapacity", STATE_SOURCE)
         self.assertIn(
             "readWord(kRoomActorTableStart + i * sizeof(u32))", STATE_SOURCE
@@ -536,7 +570,7 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn("Susamune: epoch mask=%08X first=%s", KERNEL_CRASH_SOURCE)
         self.assertIn("LMEpochFieldName(mask)", KERNEL_CRASH_SOURCE)
         self.assertIn(
-            '"LM STATE X0.3.24 F:%s C:%s H:%s X%02lX"', DIAG_SOURCE
+            '"LM STATE X0.3.25 F:%s C:%s H:%s X%02lX"', DIAG_SOURCE
         )
         self.assertIn("LMState::crossRoomGuardCode()", DIAG_SOURCE)
         self.assertIn(
@@ -570,7 +604,7 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn('"VC %08lX>%08lX D%08lX>%08lX"', DIAG_SOURCE)
         self.assertIn("guardedCrossRoomRestoreAllowed", STATE_SOURCE)
         self.assertIn("repairSavedVolumeList", STATE_SOURCE)
-        self.assertIn("kSnapshotVersion = 13u", STATE_SOURCE)
+        self.assertIn("kSnapshotVersion = 14u", STATE_SOURCE)
 
     def test_resource_manager_epoch_census_is_bounded(self) -> None:
         self.assertIn("kResourceMapBase = 0x80398C50u", STATE_SOURCE)
@@ -645,7 +679,7 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
                       STATE_SOURCE)
         self.assertIn("kModelRegistryOutputStateEnd = 0x803E3CF8u",
                       STATE_SOURCE)
-        self.assertIn("kSnapshotVersion = 13u", STATE_SOURCE)
+        self.assertIn("kSnapshotVersion = 14u", STATE_SOURCE)
 
     def test_camera_state_tracks_persistent_views_safely(self) -> None:
         self.assertIn("kCameraObjectPointerTable = 0x80399BE0u", STATE_SOURCE)
@@ -812,7 +846,12 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn("postLoadDetail(0xF0u", DIAG_SOURCE)
         self.assertIn("postLoadDetail(0xF1u", DIAG_SOURCE)
         self.assertNotIn("diagnosticAudioTailB628", DIAG_SOURCE)
-        self.assertEqual(DIAG_SOURCE.count("DEFINE_UPDATE_CALL(diagnostic"), 34)
+        self.assertEqual(DIAG_SOURCE.count("DEFINE_UPDATE_CALL(diagnostic"), 48)
+        self.assertEqual(
+            DIAG_SOURCE.count("DEFINE_ACTOR_UPDATE_CALL(diagnostic"), 9
+        )
+        self.assertIn("postLoadDetail(0xF2u, descriptor, a0)", DIAG_SOURCE)
+        self.assertIn("postLoadDetail(0xF3u, descriptor, vtable)", DIAG_SOURCE)
 
     def test_post_load_trace_spans_multiple_restored_frames(self) -> None:
         self.assertIn("kPostLoadTraceFrameLimit = 8u", STATE_SOURCE)
@@ -826,6 +865,9 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         )
         self.assertIn("u32 sPostLoadTraceFrame", STATE_SOURCE)
         self.assertIn("bool sPostLoadTracePresentationBurst", STATE_SOURCE)
+        self.assertIn("kPadMovementDeadzone = 24u", STATE_SOURCE)
+        self.assertIn("kPostLoadInputBurstUpdates = 2u", STATE_SOURCE)
+        self.assertIn("bool padMovementActive()", STATE_SOURCE)
         load_success = STATE_SOURCE.split(
             "sStatus = LMState::Status::Loaded", 1
         )[1].split("traceLoadPhase(0x7Fu", 1)[0]
@@ -864,7 +906,10 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn(
             "sPostLoadDoorWindow = kPostLoadDoorWindowFrames", milestone
         )
-        self.assertIn("sPostLoadTraceBurstUpdates = 1u", milestone)
+        self.assertIn(
+            "sPostLoadTraceBurstUpdates = kPostLoadInputBurstUpdates",
+            milestone,
+        )
         self.assertIn("refreshPostLoadTransitionWatch();", milestone)
         self.assertIn(
             "sPostLoadTraceBurstUpdates =\n"
@@ -875,9 +920,13 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn("--sPostLoadTraceBurstUpdates", milestone)
         self.assertIn("sPostLoadTracePresentationBurst", milestone)
         self.assertIn("tracePostLoadTransitionChange();", milestone)
+        self.assertIn("const bool movement = padMovementActive();", milestone)
+        self.assertIn("movement || changedButtons != 0u", milestone)
+        self.assertIn("SUSAMUNE_PHASE_ACTION_POST_LOAD, 0xE6u", milestone)
         detail = STATE_SOURCE.split(
             "void postLoadDetail(u32 phase", 1
         )[1].split("void presenterEnter", 1)[0]
+        self.assertIn("postLoadDetailEnabled()", detail)
         self.assertIn("sPostLoadTraceState == 3u", detail)
         self.assertIn("sPostLoadTracePresentationBurst", detail)
         presenter = STATE_SOURCE.split("void presenterEnter()", 1)[1]

@@ -14,13 +14,41 @@ static struct SusamuneCrashReport Snapshot;
 static struct SusamuneCrashReport FileReport;
 static char BinPaths[2][64];
 static char TextPaths[2][64];
+static char LmDumpPaths[2][64];
+static char LmDumpDirectory[32];
 static char Line[256];
 static u32 AttemptedSeq;
 static u32 LastPoll;
 static u32 LastPhaseSequence;
+static u32 LmDumpGeneration;
+static u32 LmDumpModCrc;
 static bool CrashEnabled;
+static bool LmDumpEnabled;
+static bool LmDumpOpen;
+static FIL LmDumpFile;
 static FIL TextFile;
 static int TextStatus;
+
+#define SUSAMUNE_LM_DUMP_MAGIC          0x4C4D4450u /* 'LMDP' */
+#define SUSAMUNE_LM_DUMP_VERSION        1u
+#define SUSAMUNE_LM_SAVE_COMPLETE_PHASE 0x7Fu
+
+/* One successful save owns a file until the next successful save. Raw phase
+ * records retain their existing torn-write checks and need no translation. */
+struct SusamuneLmDumpHeader {
+	u32 magic;
+	u16 version;
+	u16 headerSize;
+	u32 generation;
+	u32 generationInverse;
+	u32 gameId;
+	u32 modFileCrc32;
+	u32 recordSize;
+	u32 saveSequence;
+};
+
+typedef char susamune_lm_dump_header_size_check[
+	(sizeof(struct SusamuneLmDumpHeader) == 32) ? 1 : -1];
 
 static u32 CrashChecksum(const struct SusamuneCrashReport *report)
 {
@@ -57,6 +85,162 @@ static bool ValidReport(const struct SusamuneCrashReport *report)
 static bool GenerationNewer(u32 candidate, u32 current)
 {
 	return (s32)(candidate - current) > 0;
+}
+
+static bool ValidLmDumpHeader(const struct SusamuneLmDumpHeader *header)
+{
+	return header->magic == SUSAMUNE_LM_DUMP_MAGIC &&
+		header->version == SUSAMUNE_LM_DUMP_VERSION &&
+		header->headerSize == sizeof(*header) &&
+		header->generation != 0 &&
+		(header->generation ^ header->generationInverse) == 0xFFFFFFFFu &&
+		header->gameId == SUSAMUNE_MOD_GAME_ID_LMJ &&
+		header->recordSize == sizeof(struct SusamunePhaseTrace) &&
+		header->saveSequence != 0 &&
+		(header->saveSequence & 1u) == 0;
+}
+
+static bool ValidPhaseTrace(const struct SusamunePhaseTrace *trace);
+
+static bool ReadLmDumpHeader(const char *path,
+	struct SusamuneLmDumpHeader *header)
+{
+	FIL file;
+	struct SusamunePhaseTrace first;
+	UINT read = 0;
+	int ret = f_open_char(&file, path, FA_READ | FA_OPEN_EXISTING);
+	int closeRet;
+	if (ret != FR_OK)
+		return false;
+	ret = f_read(&file, header, sizeof(*header), &read);
+	if (ret == FR_OK && read == sizeof(*header))
+		ret = f_read(&file, &first, sizeof(first), &read);
+	closeRet = f_close(&file);
+	return ret == FR_OK && closeRet == FR_OK && read == sizeof(first) &&
+		ValidLmDumpHeader(header) && ValidPhaseTrace(&first) &&
+		first.action == SUSAMUNE_PHASE_ACTION_SAVE &&
+		first.phase == SUSAMUNE_LM_SAVE_COMPLETE_PHASE &&
+		first.sequenceBegin == header->saveSequence;
+}
+
+static bool CloseLmDump(void)
+{
+	int ret;
+	if (!LmDumpOpen)
+		return true;
+	ret = f_close(&LmDumpFile);
+	LmDumpOpen = false;
+	return ret == FR_OK;
+}
+
+static void DisableLmDump(void)
+{
+	CloseLmDump();
+	LmDumpEnabled = false;
+}
+
+static bool WriteLmDump(const void *data, u32 size, bool sync)
+{
+	UINT wrote = 0;
+	int ret;
+	if (!LmDumpOpen)
+		return false;
+	ret = f_write(&LmDumpFile, data, size, &wrote);
+	if (ret == FR_OK && wrote != size)
+		ret = FR_DISK_ERR;
+	if (ret == FR_OK && sync)
+		ret = f_sync(&LmDumpFile);
+	if (ret != FR_OK)
+	{
+		DisableLmDump();
+		return false;
+	}
+	return true;
+}
+
+static void BeginLmDump(const struct SusamunePhaseTrace *trace)
+{
+	struct SusamuneLmDumpHeader header;
+	u32 generation;
+	u32 target;
+	int ret;
+
+	if (!CloseLmDump())
+	{
+		LmDumpEnabled = false;
+		return;
+	}
+	generation = LmDumpGeneration + 1u;
+	if (generation == 0)
+		generation = 1;
+	target = generation & 1u;
+
+	memset(&header, 0, sizeof(header));
+	header.magic = SUSAMUNE_LM_DUMP_MAGIC;
+	header.version = SUSAMUNE_LM_DUMP_VERSION;
+	header.headerSize = sizeof(header);
+	header.generation = generation;
+	header.generationInverse = ~generation;
+	header.gameId = SUSAMUNE_MOD_GAME_ID_LMJ;
+	header.modFileCrc32 = LmDumpModCrc;
+	header.recordSize = sizeof(*trace);
+	header.saveSequence = trace->sequenceBegin;
+
+	ret = f_open_char(&LmDumpFile, LmDumpPaths[target],
+		FA_WRITE | FA_CREATE_ALWAYS);
+	if (ret != FR_OK)
+	{
+		LmDumpEnabled = false;
+		return;
+	}
+	LmDumpOpen = true;
+	if (!WriteLmDump(&header, sizeof(header), false) ||
+		!WriteLmDump(trace, sizeof(*trace), true))
+		return;
+	LmDumpGeneration = generation;
+}
+
+static void RecordLmDump(const struct SusamunePhaseTrace *trace)
+{
+	if (!LmDumpEnabled)
+		return;
+	if (trace->action == SUSAMUNE_PHASE_ACTION_SAVE &&
+		trace->phase == SUSAMUNE_LM_SAVE_COMPLETE_PHASE)
+	{
+		BeginLmDump(trace);
+		return;
+	}
+	if (LmDumpOpen)
+		WriteLmDump(trace, sizeof(*trace), true);
+}
+
+static void InitLmDump(u32 modFileCrc32, bool stagedModValid)
+{
+	struct SusamuneLmDumpHeader header;
+	u32 i;
+	int ret;
+
+	LmDumpGeneration = 0;
+	LmDumpModCrc = modFileCrc32;
+	LmDumpEnabled = false;
+	LmDumpOpen = false;
+	if (!CrashEnabled || GAME_ID != SUSAMUNE_MOD_GAME_ID_LMJ ||
+		!stagedModValid)
+		return;
+
+	_sprintf(LmDumpDirectory, "%s/lm_dumps",
+		SusamuneCfgStoragePrefix());
+	_sprintf(LmDumpPaths[0], "%s/lm_attempt_a.bin", LmDumpDirectory);
+	_sprintf(LmDumpPaths[1], "%s/lm_attempt_b.bin", LmDumpDirectory);
+	ret = f_mkdir_char(LmDumpDirectory);
+	if (ret != FR_OK && ret != FR_EXIST)
+		return;
+
+	LmDumpEnabled = true;
+	for (i = 0; i < 2; ++i)
+		if (ReadLmDumpHeader(LmDumpPaths[i], &header) &&
+			GenerationNewer(header.generation, LmDumpGeneration))
+			LmDumpGeneration = header.generation;
 }
 
 static bool ReadReport(const char *path, struct SusamuneCrashReport *report)
@@ -146,6 +330,7 @@ static void PollPhaseTrace(void)
 		snapshot.sequenceBegin == LastPhaseSequence)
 		return;
 	LastPhaseSequence = snapshot.sequenceBegin;
+	RecordLmDump(&snapshot);
 	if (snapshot.action == SUSAMUNE_PHASE_ACTION_LOAD &&
 		(snapshot.phase & SUSAMUNE_LM_EPOCH_PHASE_FLAG)) {
 		u32 mask = snapshot.phase & SUSAMUNE_LM_EPOCH_MASK;
@@ -208,6 +393,7 @@ void SusamuneCrashInit(void)
 	const struct SusamuneModHeader *mod = SUSAMUNE_MOD_PHYS_PTR;
 	u32 generation = 0;
 	u32 i;
+	bool stagedModValid;
 
 	memset(mailbox, 0, SUSAMUNE_MEM2_CRASH_SIZE);
 	CrashEnabled = SusamuneCfgStorageAvailable();
@@ -240,7 +426,8 @@ void SusamuneCrashInit(void)
 	if (mailbox->captureSeq == 0)
 		mailbox->captureSeq = 1;
 	mailbox->gameId = GAME_ID;
-	if (ValidStagedMod(mod))
+	stagedModValid = ValidStagedMod(mod);
+	if (stagedModValid)
 	{
 		sync_before_read((void*)mod, mod->fileSize);
 		mailbox->modFileCrc32 = ModFileCrc(mod);
@@ -249,6 +436,7 @@ void SusamuneCrashInit(void)
 		mailbox->modWriteCount = mod->writeCount;
 		mailbox->arenaReserve = mod->arenaReserve;
 	}
+	InitLmDump(mailbox->modFileCrc32, stagedModValid);
 	sync_after_write(mailbox, SUSAMUNE_MEM2_CRASH_SIZE);
 }
 

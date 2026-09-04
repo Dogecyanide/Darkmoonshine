@@ -303,6 +303,147 @@ patches = [
         "type": PatchType.BL,
         "expected": 0x4811F6B9,
     },
+    # Movement can wake fixed effect controllers and actor passes after the
+    # quiet post-load window. Split both dispatchers while the input-triggered
+    # journal is armed so the final entry identifies the exact child and actor.
+    {
+        "lmj": 0x80160D74,
+        "sym": "diagnosticEffectUpdate0",
+        "type": PatchType.BL,
+        "expected": 0x48001AC5,
+    },
+    {
+        "lmj": 0x80160D7C,
+        "sym": "diagnosticEffectUpdate1",
+        "type": PatchType.BL,
+        "expected": 0x48016AF5,
+    },
+    {
+        "lmj": 0x80160D84,
+        "sym": "diagnosticEffectUpdate2",
+        "type": PatchType.BL,
+        "expected": 0x4800A621,
+    },
+    {
+        "lmj": 0x80160D8C,
+        "sym": "diagnosticEffectUpdate3",
+        "type": PatchType.BL,
+        "expected": 0x4800B139,
+    },
+    {
+        "lmj": 0x80160D94,
+        "sym": "diagnosticEffectUpdate4",
+        "type": PatchType.BL,
+        "expected": 0x4800D5ED,
+    },
+    {
+        "lmj": 0x80160D9C,
+        "sym": "diagnosticEffectUpdate5",
+        "type": PatchType.BL,
+        "expected": 0x4800DA05,
+    },
+    {
+        "lmj": 0x80160DA4,
+        "sym": "diagnosticEffectUpdate6",
+        "type": PatchType.BL,
+        "expected": 0x4800E9D5,
+    },
+    {
+        "lmj": 0x80156AE4,
+        "sym": "diagnosticEffectTail0",
+        "type": PatchType.BL,
+        "expected": 0x48016721,
+    },
+    {
+        "lmj": 0x80156AF0,
+        "sym": "diagnosticEffectTail1",
+        "type": PatchType.BL,
+        "expected": 0x4BFFE629,
+    },
+    {
+        "lmj": 0x80156AF4,
+        "sym": "diagnosticEffectTail2",
+        "type": PatchType.BL,
+        "expected": 0x4BFF915D,
+    },
+    {
+        "lmj": 0x80156AF8,
+        "sym": "diagnosticEffectTail3",
+        "type": PatchType.BL,
+        "expected": 0x4BFDDCA5,
+    },
+    {
+        "lmj": 0x8012B120,
+        "sym": "diagnosticEffectList0",
+        "type": PatchType.BL,
+        "expected": 0x480420E5,
+    },
+    {
+        "lmj": 0x8012B12C,
+        "sym": "diagnosticEffectList1",
+        "type": PatchType.BL,
+        "expected": 0x480420D9,
+    },
+    {
+        "lmj": 0x8012B148,
+        "sym": "diagnosticEffectList2",
+        "type": PatchType.BL,
+        "expected": 0x480420BD,
+    },
+    {
+        "lmj": 0x80060664,
+        "sym": "diagnosticActorUpdate0",
+        "type": PatchType.BL,
+        "expected": 0x480081A1,
+    },
+    {
+        "lmj": 0x80060700,
+        "sym": "diagnosticActorUpdate1",
+        "type": PatchType.BL,
+        "expected": 0x480081E5,
+    },
+    {
+        "lmj": 0x80060784,
+        "sym": "diagnosticActorUpdate2",
+        "type": PatchType.BL,
+        "expected": 0x4800821D,
+    },
+    {
+        "lmj": 0x80060800,
+        "sym": "diagnosticActorUpdate3",
+        "type": PatchType.BL,
+        "expected": 0x48008289,
+    },
+    {
+        "lmj": 0x800608E4,
+        "sym": "diagnosticActorUpdate4",
+        "type": PatchType.BL,
+        "expected": 0x48008335,
+    },
+    {
+        "lmj": 0x80060918,
+        "sym": "diagnosticActorUpdate5",
+        "type": PatchType.BL,
+        "expected": 0x4800685D,
+    },
+    {
+        "lmj": 0x8006094C,
+        "sym": "diagnosticActorUpdate6",
+        "type": PatchType.BL,
+        "expected": 0x48006955,
+    },
+    {
+        "lmj": 0x80060980,
+        "sym": "diagnosticActorUpdate7",
+        "type": PatchType.BL,
+        "expected": 0x48006DD1,
+    },
+    {
+        "lmj": 0x800609B0,
+        "sym": "diagnosticActorUpdate8",
+        "type": PatchType.BL,
+        "expected": 0x480068A5,
+    },
     # Trace every direct retail call in MAIN GAME's draw dispatcher and its
     # normal-room renderer.  Each wrapper records callsite/target before and
     # after forwarding all volatile integer argument registers.

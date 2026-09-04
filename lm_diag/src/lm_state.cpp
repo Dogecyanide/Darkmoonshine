@@ -131,7 +131,7 @@ constexpr u32 kMem1End = 0x81800000u;
 constexpr u32 kSnapshotBase = SUSAMUNE_MEM2_SNAPSHOT_PPC_BASE;
 constexpr u32 kSnapshotCapacity = SUSAMUNE_MEM2_SNAPSHOT_SIZE;
 constexpr u32 kSnapshotMagic = 0x4C4D5354u;  // 'LMST'
-constexpr u32 kSnapshotVersion = 13u;
+constexpr u32 kSnapshotVersion = 14u;
 constexpr u32 kHeaderSize = 0x100u;
 constexpr u32 kHeapMetadataStart = 0x3Cu;
 constexpr u32 kHeapMetadataEnd = 0x84u;
@@ -205,6 +205,11 @@ constexpr u32 kParticlePoolCount = 0x400u;
 constexpr u32 kParticleSize = 0x64u;
 constexpr u32 kParticleChildPoolCount = 0x400u;
 constexpr u32 kParticleChildSize = 0x2Cu;
+// Scene effects keep their list sentinels, pointer vectors, and active counts
+// here while the linked nodes live in the gameplay heap. Stop before CEB00's
+// destructor records; CEBA0 begins an async object with an OSMessageQueue.
+constexpr u32 kEffectControllerStateStart = 0x803CE0F0u;
+constexpr u32 kEffectControllerStateEnd = 0x803CEB00u;
 constexpr u32 kMainLoopStateSize = 0x08u;
 // Leave the live heap-group byte, fixed render-mode pointers, and sCurScene
 // outside the copy. They are exact epoch gates, not state to rewind.
@@ -284,6 +289,8 @@ constexpr StaticRange kStateStaticRanges[] = {
      kGrainManagerStateEnd - kGrainManagerStateStart},
     {kParticleManagerStateStart,
      kParticleManagerStateEnd - kParticleManagerStateStart},
+    {kEffectControllerStateStart,
+     kEffectControllerStateEnd - kEffectControllerStateStart},
     {kModelRegistryOutputStateStart,
      kModelRegistryOutputStateEnd - kModelRegistryOutputStateStart},
     {kMainLoopStateBase, kMainLoopStateSize},
@@ -316,6 +323,7 @@ constexpr u32 kStateStaticsSize =
     (kModelOutputStateEnd - kModelOutputStateStart) +
     (kGrainManagerStateEnd - kGrainManagerStateStart) + kMainLoopStateSize +
     (kParticleManagerStateEnd - kParticleManagerStateStart) +
+    (kEffectControllerStateEnd - kEffectControllerStateStart) +
     (kModelRegistryOutputStateEnd - kModelRegistryOutputStateStart) +
     (kGameSdata0End - kGameSdata0Start) +
     (kGameSdata1End - kGameSdata1Start) +
@@ -330,9 +338,13 @@ constexpr u32 kHeapDataOffset =
 constexpr u16 kDPadLeft = 0x0001u;
 constexpr u16 kDPadRight = 0x0002u;
 constexpr u16 kButtonA = 0x0100u;
+constexpr u32 kPadStickXOffset = 2u;
+constexpr u32 kPadStickYOffset = 3u;
+constexpr u32 kPadMovementDeadzone = 24u;
 constexpr u32 kRequiredStableFrames = 3u;
 constexpr u32 kPostLoadTraceFrameLimit = 8u;
 constexpr u32 kPostLoadTraceLingeringFrameLimit = 7200u;
+constexpr u32 kPostLoadInputBurstUpdates = 2u;
 constexpr u32 kPostLoadTraceHeartbeatFrames = 300u;
 constexpr u32 kPostLoadDoorWindowFrames = 240u;
 constexpr u32 kPostLoadTransitionBurstUpdates = 2u;
@@ -581,13 +593,13 @@ static_assert(kDvdSecondaryRequestQueue + 0x20u ==
               "LM secondary DVD worker layout drifted");
 static_assert((kHeapDataOffset & 31u) == 0,
               "LM heap payload must be cache-line aligned");
-static_assert(kStateStaticsSize == 0x153C8u,
+static_assert(kStateStaticsSize == 0x15DD8u,
               "LM static manifest size drifted");
-static_assert(kCameraObjectStateOffset == 0x15510u,
+static_assert(kCameraObjectStateOffset == 0x15F20u,
               "LM camera-object sidecar offset drifted");
 static_assert(kCameraObjectStateSize == 0x300u,
               "LM camera-object sidecar size drifted");
-static_assert(kHeapDataOffset == 0x15820u,
+static_assert(kHeapDataOffset == 0x16220u,
               "LM static manifest packing drifted");
 static_assert(kTransitionHeaderStateEnd - kTransitionHeaderStateStart == 0x14u,
               "LM transition header snapshot boundary drifted");
@@ -620,6 +632,9 @@ static_assert(kGrainManagerStateEnd - kGrainManagerStateStart == 0x970u,
               "LM grain-manager snapshot boundary drifted");
 static_assert(kParticleManagerStateEnd - kParticleManagerStateStart == 0xBF4u,
               "LM particle-manager snapshot boundary drifted");
+static_assert(kEffectControllerStateEnd - kEffectControllerStateStart ==
+                  0xA10u,
+              "LM effect-controller snapshot boundary drifted");
 static_assert(kAnimatedModelOwnerStateEnd -
                       kAnimatedModelOwnerStateStart ==
                   0x6CCu,
@@ -862,6 +877,7 @@ u32 sPostLoadTraceHeartbeat;
 u16 sPostLoadTraceButtons;
 bool sPostLoadTraceBurst;
 bool sPostLoadTracePresentationBurst;
+bool sPostLoadTraceMovement;
 u32 sPostLoadDoorWindow;
 u32 sPostLoadTraceBurstUpdates;
 PostLoadTransitionWatch sPostLoadTransitionWatch;
@@ -921,6 +937,17 @@ inline u16 readHalf(u32 address) {
 
 inline u8 readByte(u32 address) {
     return *reinterpret_cast<volatile u8 *>(address);
+}
+
+u32 stickMagnitude(u8 raw) {
+    return raw < 0x80u ? raw : 0x100u - raw;
+}
+
+bool padMovementActive() {
+    return stickMagnitude(readByte(kPadStatusGlobal + kPadStickXOffset)) >
+               kPadMovementDeadzone ||
+           stickMagnitude(readByte(kPadStatusGlobal + kPadStickYOffset)) >
+               kPadMovementDeadzone;
 }
 
 inline void writeWord(u32 address, u32 value) {
@@ -3083,6 +3110,7 @@ void saveState() {
         sPostLoadTraceButtons = readHalf(kPadStatusGlobal);
         sPostLoadTraceBurst = false;
         sPostLoadTracePresentationBurst = false;
+        sPostLoadTraceMovement = false;
         sPostLoadDoorWindow = 0u;
         sPostLoadTraceBurstUpdates = 0u;
         samplePostLoadTransitionWatch(&sPostLoadTransitionWatch);
@@ -3294,6 +3322,7 @@ void loadState() {
     sPostLoadTraceFrame = 0u;
     sPostLoadTraceBurst = false;
     sPostLoadTracePresentationBurst = false;
+    sPostLoadTraceMovement = false;
     sPostLoadDoorWindow = 0u;
     sPostLoadTraceBurstUpdates = 0u;
     sPostLoadTraceState = 1u;
@@ -3371,24 +3400,34 @@ void postLoadMilestone(u32 phase) {
         return;
     }
 
-    // Keep exact wrappers off until a door action or its streaming state
-    // changes; the ARM fsyncs every phase it observes. Once armed, retain a
-    // presentation-wide flag past MAIN GAME update so 8F, draw, presenter,
-    // audio callbacks, and the loop tail cannot disappear into a blind gap.
+    // Keep exact wrappers off until input or streaming activity makes the
+    // next frame interesting; the ARM fsyncs every phase it observes. Retain
+    // the flag through presentation so the loop tail cannot become a blind
+    // gap after MAIN GAME update.
     if (phase == 0x8Du) {
         const bool carriedTrace = sPostLoadTracePresentationBurst;
         const u16 buttons = readHalf(kPadStatusGlobal);
+        const u16 changedButtons = buttons ^ sPostLoadTraceButtons;
         const bool aEdge = (buttons & kButtonA) != 0u &&
                            (sPostLoadTraceButtons & kButtonA) == 0u;
         sPostLoadTraceButtons = buttons;
+        const bool movement = padMovementActive();
+        const bool movementEdge = movement && !sPostLoadTraceMovement;
+        sPostLoadTraceMovement = movement;
         const bool transitionChanged =
             (aEdge || sPostLoadDoorWindow != 0u) &&
             refreshPostLoadTransitionWatch();
         if (aEdge) {
             sPostLoadDoorWindow = kPostLoadDoorWindowFrames;
             sPostLoadTraceHeartbeat = 0u;
-            if (sPostLoadTraceBurstUpdates == 0u) {
-                sPostLoadTraceBurstUpdates = 1u;
+            if (sPostLoadTraceBurstUpdates < kPostLoadInputBurstUpdates) {
+                sPostLoadTraceBurstUpdates = kPostLoadInputBurstUpdates;
+            }
+        }
+        if (movement || changedButtons != 0u) {
+            sPostLoadTraceHeartbeat = 0u;
+            if (sPostLoadTraceBurstUpdates < kPostLoadInputBurstUpdates) {
+                sPostLoadTraceBurstUpdates = kPostLoadInputBurstUpdates;
             }
         }
         if (transitionChanged && sPostLoadDoorWindow != 0u &&
@@ -3404,6 +3443,18 @@ void postLoadMilestone(u32 phase) {
         }
         if (transitionChanged) {
             tracePostLoadTransitionChange();
+        }
+        if (movementEdge || changedButtons != 0u) {
+            const u32 sticks =
+                static_cast<u32>(readByte(kPadStatusGlobal +
+                                          kPadStickXOffset)) <<
+                    24 |
+                static_cast<u32>(readByte(kPadStatusGlobal +
+                                          kPadStickYOffset)) <<
+                    16 |
+                buttons;
+            LMCrash::phase(SUSAMUNE_PHASE_ACTION_POST_LOAD, 0xE6u,
+                           sticks, sPostLoadTraceFrame);
         }
     } else if (phase == 0x8Eu) {
         const bool traced = sPostLoadTraceBurst;
@@ -3433,13 +3484,15 @@ void postLoadMilestone(u32 phase) {
 }
 
 void postLoadDetail(u32 phase, u32 arg0, u32 arg1) {
-    const bool detailed =
-        sPostLoadTraceState == 1u || sPostLoadTraceState == 2u;
-    const bool doorBurst = sPostLoadTraceState == 3u &&
-                           sPostLoadTracePresentationBurst;
-    if (detailed || doorBurst) {
+    if (postLoadDetailEnabled()) {
         LMCrash::phase(SUSAMUNE_PHASE_ACTION_POST_LOAD, phase, arg0, arg1);
     }
+}
+
+bool postLoadDetailEnabled() {
+    return sPostLoadTraceState == 1u || sPostLoadTraceState == 2u ||
+           (sPostLoadTraceState == 3u &&
+            sPostLoadTracePresentationBurst);
 }
 
 void presenterEnter() {
@@ -3450,6 +3503,7 @@ void presenterEnter() {
             sPostLoadTraceButtons = readHalf(kPadStatusGlobal);
             sPostLoadTraceBurst = false;
             sPostLoadTracePresentationBurst = false;
+            sPostLoadTraceMovement = false;
             sPostLoadDoorWindow = 0u;
             sPostLoadTraceBurstUpdates = 0u;
             samplePostLoadTransitionWatch(&sPostLoadTransitionWatch);
@@ -3465,6 +3519,7 @@ void presenterEnter() {
             sPostLoadTraceState = 0u;
             sPostLoadTraceBurst = false;
             sPostLoadTracePresentationBurst = false;
+            sPostLoadTraceMovement = false;
             sPostLoadDoorWindow = 0u;
             sPostLoadTraceBurstUpdates = 0u;
             return;

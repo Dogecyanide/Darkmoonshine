@@ -14,7 +14,7 @@ unmodified.
 The overlay rows are:
 
 ```text
-LM STATE X0.3.24 F:<floor> C:<canary> H:<heap check> X<cross-room guard>
+LM STATE X0.3.25 F:<floor> C:<canary> H:<heap check> X<cross-room guard>
 S:<state status> ST<stable frames> SZ<snapshot KiB> G:<gate> <gate value>
 E:<first epoch field> M<mismatch mask> <saved value>><live value>
 V:<topology> S<saved count>>L<live count> -<removed> +<added> F<save>/<live fault>
@@ -60,6 +60,14 @@ checkerboard. Full-state builds also append cache-coherent `Susamune: phase`
 records while saving, loading, and traversing the restored-frame trace window.
 The ARM writes and syncs these independently, so the last record survives a
 PowerPC hard lock that never reaches the exception dumper.
+
+Starting with `0.3.25`, a valid GLMJ diagnostic boot also creates `/lm_dumps`
+on the launcher's storage device. `lm_attempt_a.bin` and `lm_attempt_b.bin`
+alternate on successful saves. Each contains a 32-byte generation/build header
+followed by the exact 32-byte phase records observed after that save; no heap or
+MEM2 snapshot bytes are duplicated. Every accepted record is synced while no
+asynchronous DI read is active. A half-created generation is ignored unless its
+header and first save-complete record agree, leaving the other bank recoverable.
 
 Version `0.3.9` additionally captures GLMJ01's standalone `0x270`-byte
 camera/viewport state block at `0x80398770-0x803989E0`. The normal-room draw
@@ -311,6 +319,51 @@ records the old/new values for its lowest changed bit. A successful save during
 the tail restarts its two-minute deadline and transition baseline. After a hard
 lock or reboot, preserve `/ndebug.log`. `87` is the tail start and its 300-frame
 heartbeat; heartbeats pause during the door watch.
+
+Version `0.3.25` advances the snapshot to format 14 and adds the fixed
+scene-effect controller range `803CE0F0-803CEB00`. The range owns list
+sentinels, pointer vectors, and active counts whose linked objects live in the
+gameplay heap. It stops before CEB00's destructor records and CEBA0's
+asynchronous object and `OSMessageQueue`. The static payload is now `0x15DD8`
+bytes, the camera-object sidecar begins at `0x15F20`, and the aligned gameplay
+heap begins at `0x16220`.
+
+The two-minute tail now arms exact tracing for the current and following update
+whenever either main stick axis exceeds 24 raw units or any button changes.
+`E6` records raw stick X
+in bits 31-24, raw stick Y in bits 23-16, the button mask in bits 15-0, and the
+post-load frame number in `arg1`. Existing `E0/E1` records now also split the
+effect-controller and downstream effect-list calls that wake when walking
+creates dust or another room effect. `F2/F3` bracket each room-actor update;
+`arg0` packs its pass in the high half and restored actor-table index in the low
+half (`FFFF` means not found). On entry (`F2`), `arg1` is the actor pointer; on
+return (`F3`), it is the actor's vtable. These markers target the delayed
+movement failure seen only after otherwise successful room rewinds.
+
+For the current `0.3.25` pass, create a new version-14 state, repeat the
+same-room and cross-room/re-entry checks above, then walk normally after a
+successful load. After any exception, hard lock, or reboot, do not make another
+successful save before collecting the SD card. Copy all of these when present:
+
+```text
+/ndebug.log
+/lm_dumps/lm_attempt_a.bin
+/lm_dumps/lm_attempt_b.bin
+/susamune_crash_a.txt
+/susamune_crash_b.txt
+```
+
+The attempt banks retain the newest two successful-save generations; a later
+save rotates the older one away. Decode both files read-only from the repository
+with (replace `D:` if the SD card uses another drive letter):
+
+```powershell
+.\venv\Scripts\python.exe scripts\read_lm_dump.py D:\lm_dumps
+```
+
+The parser validates the generation inverse and each phase's duplicate
+sequence/inverse fields, marks the newest valid generation, prints every exact
+record, and reports any incomplete trailing bytes.
 
 Build the Homebrew Channel package with:
 
