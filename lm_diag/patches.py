@@ -830,19 +830,13 @@ patches = [
         "type": PatchType.BL,
         "expected": 0x4BFFC9FD,
     },
-    # Close the two-call JAudio gap between the post-update fade controller
-    # and the presenter. These remain transparent unless tail tracing is armed.
+    # Close the only non-trivial JAudio gap between the post-update fade
+    # controller and the presenter. The following 0x80186868 call is a blr.
     {
         "lmj": 0x8000B618,
         "sym": "diagnosticAudioTailB618",
         "type": PatchType.BL,
         "expected": 0x4817B19D,
-    },
-    {
-        "lmj": 0x8000B628,
-        "sym": "diagnosticAudioTailB628",
-        "type": PatchType.BL,
-        "expected": 0x4817B241,
     },
     {
         "lmj": 0x8000B62C,

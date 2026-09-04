@@ -271,7 +271,7 @@ void drawPanel(void *directPrint, void *xfb, const HeapSample &system,
         directPrint, 0, kPanelTop, 320, panelHeight);
     reinterpret_cast<DirectPrintDrawStringFn>(kDirectPrintDrawStringAddr)(
         directPrint, 2, kPanelTop + 2u,
-        "LM STATE X0.3.20 F:%s C:%s H:%s X%02lX",
+        "LM STATE X0.3.21 F:%s C:%s H:%s X%02lX",
         status(sFloorObserved, sFloorOk), status(sCanaryReady, sCanaryOk),
         status(sHeapCheckReady, sHeapCheckOk), LMState::crossRoomGuardCode());
     reinterpret_cast<DirectPrintDrawStringFn>(kDirectPrintDrawStringAddr)(
@@ -778,25 +778,13 @@ extern "C" void diagnosticPostMainUpdate(void *state) {
     LMState::postLoadMilestone(0x8Fu);
 }
 
-// These are the only retail calls between the fade-controller update and the
-// presenter. Bracketing both closes the last unclassified post-8E hard-lock
-// window without running their JAudio work during the snapshot transaction.
-extern "C" u32 diagnosticAudioTailB618(
-    u32 a0, u32 a1, u32 a2, u32 a3, u32 a4, u32 a5, u32 a6, u32 a7) {
+// This is the only non-trivial retail call between the fade-controller update
+// and the presenter. The following 0x80186868 target is a bare blr and remains
+// unwrapped to avoid adding ABI and timing noise around a retail no-op.
+extern "C" void diagnosticAudioTailB618() {
     LMState::postLoadDetail(0xF0u, 0x8000B618u, 0x801867B4u);
-    const u32 result = reinterpret_cast<RetailCall8Fn>(0x801867B4u)(
-        a0, a1, a2, a3, a4, a5, a6, a7);
+    reinterpret_cast<VoidFn>(0x801867B4u)();
     LMState::postLoadDetail(0xF1u, 0x8000B618u, 0x801867B4u);
-    return result;
-}
-
-extern "C" u32 diagnosticAudioTailB628(
-    u32 a0, u32 a1, u32 a2, u32 a3, u32 a4, u32 a5, u32 a6, u32 a7) {
-    LMState::postLoadDetail(0xF2u, 0x8000B628u, 0x80186868u);
-    const u32 result = reinterpret_cast<RetailCall8Fn>(0x80186868u)(
-        a0, a1, a2, a3, a4, a5, a6, a7);
-    LMState::postLoadDetail(0xF3u, 0x8000B628u, 0x80186868u);
-    return result;
 }
 
 // These execute immediately after the post-presenter transaction wrapper and

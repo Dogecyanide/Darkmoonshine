@@ -175,7 +175,6 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
                 (0x8000B5EC, "diagnosticPreMainUpdate", "BL", 0x4BFFF6B9),
                 (0x8000B608, "diagnosticPostMainUpdate", "BL", 0x4BFFC9FD),
                 (0x8000B618, "diagnosticAudioTailB618", "BL", 0x4817B19D),
-                (0x8000B628, "diagnosticAudioTailB628", "BL", 0x4817B241),
                 (0x8000B62C, "diagnosticChangeFrameBuffer", "BL", 0x4BFFC1BD),
                 (0x8000B640, "diagnosticConditionalTail", "BL", 0x4BFFC975),
                 (0x8000B65C, "diagnosticLoopTailSync", "BL", 0x4BFFFD1D),
@@ -246,12 +245,19 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn("kHeapMetadataStart = 0x3Cu", STATE_SOURCE)
         self.assertIn("kHeapMetadataEnd = 0x84u", STATE_SOURCE)
         self.assertIn("kExpHeapAlignment = 16u", STATE_SOURCE)
-        self.assertIn("kSnapshotVersion = 9u", STATE_SOURCE)
-        self.assertIn("kTransitionStateStart = 0x803985D4u", STATE_SOURCE)
-        self.assertIn("kTransitionStateEnd = 0x80398770u", STATE_SOURCE)
+        self.assertIn("kSnapshotVersion = 10u", STATE_SOURCE)
+        self.assertIn("kTransitionHeaderStateStart = 0x803985D4u", STATE_SOURCE)
+        self.assertIn("kTransitionHeaderStateEnd = 0x803985E8u", STATE_SOURCE)
+        self.assertIn("kTransitionTailStateStart = 0x80398764u", STATE_SOURCE)
+        self.assertIn("kTransitionTailStateEnd = 0x80398770u", STATE_SOURCE)
         self.assertIn(
-            "{kTransitionStateStart,\n"
-            "     kTransitionStateEnd - kTransitionStateStart}",
+            "{kTransitionHeaderStateStart,\n"
+            "     kTransitionHeaderStateEnd - kTransitionHeaderStateStart}",
+            STATE_SOURCE,
+        )
+        self.assertIn(
+            "{kTransitionTailStateStart,\n"
+            "     kTransitionTailStateEnd - kTransitionTailStateStart}",
             STATE_SOURCE,
         )
         self.assertIn("kRendererStateStart = 0x80398770u", STATE_SOURCE)
@@ -283,6 +289,19 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
             "{kGrainManagerStateStart,\n     kGrainManagerStateEnd - kGrainManagerStateStart}",
             STATE_SOURCE,
         )
+        self.assertIn("kParticleManagerStateStart = 0x803CD4FCu", STATE_SOURCE)
+        self.assertIn("kParticleManagerStateEnd = 0x803CE0F0u", STATE_SOURCE)
+        self.assertIn(
+            "{kParticleManagerStateStart,\n"
+            "     kParticleManagerStateEnd - kParticleManagerStateStart}",
+            STATE_SOURCE,
+        )
+        self.assertIn("bool particleManagerValid", STATE_SOURCE)
+        self.assertIn("Gate::Particle", STATE_SOURCE)
+        self.assertIn('return "PTCL";', STATE_SOURCE)
+        self.assertIn(
+            "particleManagerValid(*identity, &particleFault)", STATE_SOURCE
+        )
         self.assertIn("kMainLoopStateBase = 0x80398A40u", STATE_SOURCE)
         self.assertIn("kMainLoopStateSize = 0x08u", STATE_SOURCE)
         self.assertIn("kMainLoopSceneGlobal = 0x804A0C20u", STATE_SOURCE)
@@ -301,10 +320,10 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn("kGameSbss0End = 0x804A0C90u", STATE_SOURCE)
         self.assertIn("kGameSbss1Start = 0x804A0CB0u", STATE_SOURCE)
         self.assertIn("kGameSbss1End = 0x804A1D10u", STATE_SOURCE)
-        self.assertIn("kStateStaticsSize == 0x1306Cu", STATE_SOURCE)
-        self.assertIn("kCameraObjectStateOffset == 0x131B4u", STATE_SOURCE)
+        self.assertIn("kStateStaticsSize == 0x13AE4u", STATE_SOURCE)
+        self.assertIn("kCameraObjectStateOffset == 0x13C2Cu", STATE_SOURCE)
         self.assertIn("kCameraObjectStateSize == 0x300u", STATE_SOURCE)
-        self.assertIn("kHeapDataOffset == 0x134C0u", STATE_SOURCE)
+        self.assertIn("kHeapDataOffset == 0x13F40u", STATE_SOURCE)
         self.assertIn("captureStaticRanges();", STATE_SOURCE)
         self.assertIn("restoreStaticRanges();", STATE_SOURCE)
         self.assertIn("storeStaticRanges();", STATE_SOURCE)
@@ -393,7 +412,7 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn("Susamune: epoch mask=%08X first=%s", KERNEL_CRASH_SOURCE)
         self.assertIn("LMEpochFieldName(mask)", KERNEL_CRASH_SOURCE)
         self.assertIn(
-            '"LM STATE X0.3.20 F:%s C:%s H:%s X%02lX"', DIAG_SOURCE
+            '"LM STATE X0.3.21 F:%s C:%s H:%s X%02lX"', DIAG_SOURCE
         )
         self.assertIn("LMState::crossRoomGuardCode()", DIAG_SOURCE)
         self.assertIn(
@@ -427,7 +446,7 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn('"VC %08lX>%08lX D%08lX>%08lX"', DIAG_SOURCE)
         self.assertIn("guardedCrossRoomRestoreAllowed", STATE_SOURCE)
         self.assertIn("repairSavedVolumeList", STATE_SOURCE)
-        self.assertIn("kSnapshotVersion = 9u", STATE_SOURCE)
+        self.assertIn("kSnapshotVersion = 10u", STATE_SOURCE)
 
     def test_resource_manager_epoch_census_is_bounded(self) -> None:
         self.assertIn("kResourceMapBase = 0x80398C50u", STATE_SOURCE)
@@ -502,7 +521,7 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
                       STATE_SOURCE)
         self.assertIn("kModelRegistryOutputStateEnd = 0x803E3CF8u",
                       STATE_SOURCE)
-        self.assertIn("kSnapshotVersion = 9u", STATE_SOURCE)
+        self.assertIn("kSnapshotVersion = 10u", STATE_SOURCE)
 
     def test_camera_state_tracks_persistent_views_safely(self) -> None:
         self.assertIn("kCameraObjectPointerTable = 0x80399BE0u", STATE_SOURCE)
@@ -668,8 +687,7 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn("postLoadDetail(0xE3u", DIAG_SOURCE)
         self.assertIn("postLoadDetail(0xF0u", DIAG_SOURCE)
         self.assertIn("postLoadDetail(0xF1u", DIAG_SOURCE)
-        self.assertIn("postLoadDetail(0xF2u", DIAG_SOURCE)
-        self.assertIn("postLoadDetail(0xF3u", DIAG_SOURCE)
+        self.assertNotIn("diagnosticAudioTailB628", DIAG_SOURCE)
         self.assertEqual(DIAG_SOURCE.count("DEFINE_UPDATE_CALL(diagnostic"), 34)
 
     def test_post_load_trace_spans_multiple_restored_frames(self) -> None:

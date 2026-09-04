@@ -108,7 +108,7 @@ constexpr u32 kMem1End = 0x81800000u;
 constexpr u32 kSnapshotBase = SUSAMUNE_MEM2_SNAPSHOT_PPC_BASE;
 constexpr u32 kSnapshotCapacity = SUSAMUNE_MEM2_SNAPSHOT_SIZE;
 constexpr u32 kSnapshotMagic = 0x4C4D5354u;  // 'LMST'
-constexpr u32 kSnapshotVersion = 9u;
+constexpr u32 kSnapshotVersion = 10u;
 constexpr u32 kHeaderSize = 0x100u;
 constexpr u32 kHeapMetadataStart = 0x3Cu;
 constexpr u32 kHeapMetadataEnd = 0x84u;
@@ -118,14 +118,13 @@ constexpr u32 kHeapGroupOffset = 0x69u;
 constexpr u32 kHeapMetadataSize = kHeapMetadataEnd - kHeapMetadataStart;
 constexpr u32 kHeapMetadataOffset = kHeaderSize;
 // LM's fixed fade/wipe controller is advanced by fn_80039338 immediately
-// after MAIN GAME update and reversed by fn_800391F0 in the loop tail.  It is
-// constructed once at boot as a fixed inline J2D object, not rebuilt or
-// re-owned by room streaming, so it must rewind with a door state rather than
-// survive from the future timeline.
-// Stop exactly at the renderer block: the preceding display objects own live
-// VI/XFB pointers and are intentionally excluded.
-constexpr u32 kTransitionStateStart = 0x803985D4u;
-constexpr u32 kTransitionStateEnd = 0x80398770u;
+// after MAIN GAME update and reversed by fn_800391F0 in the loop tail. Rewind
+// only its scalar controller fields. The middle 0x17C bytes are an embedded
+// J2DPicture with live texture and tree pointers and must remain live.
+constexpr u32 kTransitionHeaderStateStart = 0x803985D4u;
+constexpr u32 kTransitionHeaderStateEnd = 0x803985E8u;
+constexpr u32 kTransitionTailStateStart = 0x80398764u;
+constexpr u32 kTransitionTailStateEnd = 0x80398770u;
 // LM's camera/viewport object and its four scalar draw-state words live in
 // BSS below the game-static window. Stop before the following live display
 // object, which owns boot-allocated double-buffer pointers.
@@ -149,6 +148,17 @@ constexpr u32 kInGameFlagsSize = 0x20u;
 // live in these adjacent BSS managers and must rewind with their node links.
 constexpr u32 kGrainManagerStateStart = 0x803CBAF0u;
 constexpr u32 kGrainManagerStateEnd = 0x803CC460u;
+// The JPA emitter manager owns fixed intrusive-list anchors and counters while
+// its emitter/particle pools live in the rewound gameplay heap. Rewind the
+// complete fixed manager so those two halves cannot describe different eras.
+constexpr u32 kParticleManagerStateStart = 0x803CD4FCu;
+constexpr u32 kParticleManagerStateEnd = 0x803CE0F0u;
+constexpr u32 kParticleEmitterPoolCount = 0x80u;
+constexpr u32 kParticleEmitterSize = 0x2A0u;
+constexpr u32 kParticlePoolCount = 0x400u;
+constexpr u32 kParticleSize = 0x64u;
+constexpr u32 kParticleChildPoolCount = 0x400u;
+constexpr u32 kParticleChildSize = 0x2Cu;
 constexpr u32 kMainLoopStateSize = 0x08u;
 // Leave the live heap-group byte, fixed render-mode pointers, and sCurScene
 // outside the copy. They are exact epoch gates, not state to rewind.
@@ -195,8 +205,10 @@ struct StaticRange {
 // and audio state. Only the first two words of lbl_80398A40 are scalars;
 // +0x08 begins an OSMessageQueue.
 constexpr StaticRange kStateStaticRanges[] = {
-    {kTransitionStateStart,
-     kTransitionStateEnd - kTransitionStateStart},
+    {kTransitionHeaderStateStart,
+     kTransitionHeaderStateEnd - kTransitionHeaderStateStart},
+    {kTransitionTailStateStart,
+     kTransitionTailStateEnd - kTransitionTailStateStart},
     {kRendererStateStart, kRendererStateEnd - kRendererStateStart},
     {kCameraDescriptorStateStart,
      kCameraDescriptorStateEnd - kCameraDescriptorStateStart},
@@ -210,6 +222,8 @@ constexpr StaticRange kStateStaticRanges[] = {
      kModelOutputStateEnd - kModelOutputStateStart},
     {kGrainManagerStateStart,
      kGrainManagerStateEnd - kGrainManagerStateStart},
+    {kParticleManagerStateStart,
+     kParticleManagerStateEnd - kParticleManagerStateStart},
     {kModelRegistryOutputStateStart,
      kModelRegistryOutputStateEnd - kModelRegistryOutputStateStart},
     {kMainLoopStateBase, kMainLoopStateSize},
@@ -227,7 +241,8 @@ constexpr u32 kStateStaticRangeCount =
 constexpr u32 kStateStaticsOffset =
     kHeapMetadataOffset + kHeapMetadataSize;
 constexpr u32 kStateStaticsSize =
-    (kTransitionStateEnd - kTransitionStateStart) +
+    (kTransitionHeaderStateEnd - kTransitionHeaderStateStart) +
+    (kTransitionTailStateEnd - kTransitionTailStateStart) +
     (kRendererStateEnd - kRendererStateStart) +
     (kCameraDescriptorStateEnd - kCameraDescriptorStateStart) +
     (kCameraManagerStateEnd - kCameraManagerStateStart) + kModelTableSize +
@@ -235,6 +250,7 @@ constexpr u32 kStateStaticsSize =
     kInGameFlagsSize +
     (kModelOutputStateEnd - kModelOutputStateStart) +
     (kGrainManagerStateEnd - kGrainManagerStateStart) + kMainLoopStateSize +
+    (kParticleManagerStateEnd - kParticleManagerStateStart) +
     (kModelRegistryOutputStateEnd - kModelRegistryOutputStateStart) +
     (kGameSdata0End - kGameSdata0Start) +
     (kGameSdata1End - kGameSdata1Start) +
@@ -486,18 +502,23 @@ static_assert(kSnapshotBase + kSnapshotCapacity ==
               "LM state must end before the config/crash mailboxes");
 static_assert((kHeapDataOffset & 31u) == 0,
               "LM heap payload must be cache-line aligned");
-static_assert(kStateStaticsSize == 0x1306Cu,
+static_assert(kStateStaticsSize == 0x13AE4u,
               "LM static manifest size drifted");
-static_assert(kCameraObjectStateOffset == 0x131B4u,
+static_assert(kCameraObjectStateOffset == 0x13C2Cu,
               "LM camera-object sidecar offset drifted");
 static_assert(kCameraObjectStateSize == 0x300u,
               "LM camera-object sidecar size drifted");
-static_assert(kHeapDataOffset == 0x134C0u,
+static_assert(kHeapDataOffset == 0x13F40u,
               "LM static manifest packing drifted");
-static_assert(kTransitionStateEnd - kTransitionStateStart == 0x19Cu,
-              "LM transition-controller snapshot boundary drifted");
-static_assert(kTransitionStateEnd == kRendererStateStart,
-              "LM transition controller must abut renderer state");
+static_assert(kTransitionHeaderStateEnd - kTransitionHeaderStateStart == 0x14u,
+              "LM transition header snapshot boundary drifted");
+static_assert(kTransitionTailStateEnd - kTransitionTailStateStart == 0x0Cu,
+              "LM transition tail snapshot boundary drifted");
+static_assert(kTransitionHeaderStateEnd == 0x803985E8u &&
+                  kTransitionTailStateStart == 0x80398764u,
+              "LM embedded J2DPicture exclusion drifted");
+static_assert(kTransitionTailStateEnd == kRendererStateStart,
+              "LM transition tail must abut renderer state");
 static_assert(kRendererStateEnd - kRendererStateStart == 0x270u,
               "LM renderer snapshot boundary drifted");
 static_assert(kCameraDescriptorStateEnd - kCameraDescriptorStateStart ==
@@ -514,6 +535,8 @@ static_assert(kCameraDescriptorStateEnd == kResourceMapBase,
               "LM camera descriptors must stop before room resources");
 static_assert(kGrainManagerStateEnd - kGrainManagerStateStart == 0x970u,
               "LM grain-manager snapshot boundary drifted");
+static_assert(kParticleManagerStateEnd - kParticleManagerStateStart == 0xBF4u,
+              "LM particle-manager snapshot boundary drifted");
 static_assert(kGameSdata0End == kCurrentSceneGlobal &&
                   kGameSdata1Start == kCurrentSceneGlobal + 8u,
               "LM sCurScene must remain an uncaptured epoch gate");
@@ -559,6 +582,7 @@ enum class Gate : u32 {
     ModeMismatch,
     ModeCount,
     GameRoot,
+    Particle,
     Scene,
     LoopMode,
     LoopExit,
@@ -825,6 +849,89 @@ bool rangeInside(u32 childStart, u32 childEnd, u32 parentStart,
            childEnd <= parentEnd;
 }
 
+bool particleManagerValid(const LiveIdentity &identity, u32 *fault) {
+    const u32 base = kParticleManagerStateStart;
+    const u32 emitterPool = readWord(base);
+    const u32 particlePool = readWord(base + 0xAB8u);
+    const u32 childPool = readWord(base + 0xB2Cu);
+
+    // Retail constructs these three fixed-capacity pools while the gameplay
+    // heap is current. Their intrusive links must therefore be covered by the
+    // same heap snapshot as the manager roots below.
+    if (readWord(base + 0xB68u) != kParticleEmitterPoolCount) {
+        *fault = base + 0xB68u;
+        return false;
+    }
+    if (readWord(base + 0xB6Cu) != kParticlePoolCount) {
+        *fault = base + 0xB6Cu;
+        return false;
+    }
+    if (readWord(base + 0xB70u) != kParticleChildPoolCount) {
+        *fault = base + 0xB70u;
+        return false;
+    }
+    if (!rangeInside(emitterPool,
+                     emitterPool + kParticleEmitterPoolCount *
+                                       kParticleEmitterSize,
+                     identity.heapStart, identity.heapEnd)) {
+        *fault = base;
+        return false;
+    }
+    if (!rangeInside(particlePool,
+                     particlePool + kParticlePoolCount * kParticleSize,
+                     identity.heapStart, identity.heapEnd)) {
+        *fault = base + 0xAB8u;
+        return false;
+    }
+    if (!rangeInside(childPool,
+                     childPool + kParticleChildPoolCount *
+                                     kParticleChildSize,
+                     identity.heapStart, identity.heapEnd)) {
+        *fault = base + 0xB2Cu;
+        return false;
+    }
+
+    // Four fixed emitter-group sentinels, plus the particle and child free
+    // sentinels, are self-relative members of this BSS object. The active
+    // group may select any one of the four, but must never point elsewhere.
+    const u32 groups[4] = {
+        base + 0x004u, base + 0x2B0u, base + 0x55Cu, base + 0x808u,
+    };
+    const u32 groupRoots[4] = {0x2A4u, 0x550u, 0x7FCu, 0xAA8u};
+    u32 emitterCount = 0u;
+    bool activeGroupValid = false;
+    const u32 activeGroup = readWord(base + 0xAB4u);
+    for (u32 i = 0u; i < 4u; ++i) {
+        if (readWord(base + groupRoots[i]) != groups[i]) {
+            *fault = base + groupRoots[i];
+            return false;
+        }
+        const u32 count = readWord(base + groupRoots[i] + 8u);
+        if (count > kParticleEmitterPoolCount ||
+            emitterCount > kParticleEmitterPoolCount - count) {
+            *fault = base + groupRoots[i] + 8u;
+            return false;
+        }
+        emitterCount += count;
+        activeGroupValid = activeGroupValid || activeGroup == groups[i];
+    }
+    if (!activeGroupValid) {
+        *fault = base + 0xAB4u;
+        return false;
+    }
+    if (readWord(base + 0xB20u) != base + 0xABCu ||
+        readWord(base + 0xB28u) > kParticlePoolCount) {
+        *fault = base + 0xB20u;
+        return false;
+    }
+    if (readWord(base + 0xB5Cu) != base + 0xB30u ||
+        readWord(base + 0xB64u) > kParticleChildPoolCount) {
+        *fault = base + 0xB5Cu;
+        return false;
+    }
+    return true;
+}
+
 bool validCurrentHeap(u32 currentHeap, const LiveIdentity &identity) {
     if (currentHeap == identity.rootHeap ||
         currentHeap == identity.systemHeap || currentHeap == identity.heap) {
@@ -951,6 +1058,10 @@ bool buildIdentity(LiveIdentity *identity, bool report = false) {
     if (!rangeInside(identity->heapStart, identity->heapEnd,
                      identity->rootHeapStart, identity->rootHeapEnd)) {
         return gateFailure(Gate::GameNest, identity->heapStart, report);
+    }
+    u32 particleFault = 0u;
+    if (!particleManagerValid(*identity, &particleFault)) {
+        return gateFailure(Gate::Particle, particleFault, report);
     }
     if (identity->systemHeapEnd > identity->heapStart &&
         identity->heapEnd > identity->systemHeapStart) {
@@ -3256,6 +3367,8 @@ const char *gateText() {
         return "MCNT";
     case Gate::GameRoot:
         return "GROOT";
+    case Gate::Particle:
+        return "PTCL";
     case Gate::Scene:
         return "SCENE";
     case Gate::LoopMode:

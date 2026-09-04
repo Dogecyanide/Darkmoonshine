@@ -6,7 +6,7 @@ Mansion (`GLMJ01`).
 
 ## Current status
 
-`Full-State Experimental 0.3.20` is the current hardware-testable state build.
+`Full-State Experimental 0.3.21` is the current hardware-testable state build.
 
 - The custom Nintendont launcher accepts only the verified Japanese `GLMJ01`
   revision-0 executable for injection.
@@ -14,12 +14,14 @@ Mansion (`GLMJ01`).
 - One transactional slot uses Moonshine's protected 15.94 MiB MEM2 bank.
 - The slot captures the complete secondary gameplay heap, its allocator and
   disposer metadata, audited gameplay-static SDATA/SBSS slices with known
-  live-owned blocks excluded, LM's fixed door/fade controller, renderer state,
-  persistent camera descriptors and manager tables, the main-loop control pair, both
-  grain-effect managers and their list sentinels, the verified room/map flag
-  slice, the fixed room-streamer and model-resource tables, the mounted-volume
-  list header, and libc RNG state. The three persistent camera-view objects
-  receive a guarded sidecar only if they are outside the gameplay heap.
+  live-owned blocks excluded, the scalar halves of LM's fixed door/fade
+  controller, renderer state, persistent camera descriptors and manager
+  tables, the main-loop control pair, both grain-effect managers, the JPA
+  particle manager and their list sentinels, the verified room/map flag slice,
+  the fixed room-streamer and model-resource tables, the mounted-volume list
+  header, and libc RNG state. The fade controller's embedded `J2DPicture`
+  remains live; the three persistent camera-view objects receive a guarded
+  sidecar only if they are outside the gameplay heap.
 - Save/load is refused while DVD, ARAM, or memory-card work is active, while
   the heap is unstable, when a slot checksum fails, or when the observed live
   allocator/resource markers differ from the saved ones.
@@ -60,7 +62,7 @@ Mansion (`GLMJ01`).
 Controls are D-pad Left to save and D-pad Right to load. Confirm same-room
 restores first, then repeat the two bounded tests that produced the 0.3.14
 captures: save at the foyer bottom and load at the top, followed by save before
-a foyer door and load after it. `0.3.20` may attempt those restores instead of
+a foyer door and load after it. `0.3.21` may attempt those restores instead of
 returning `EPOCH`; a successful load is evidence for this specific resource
 shape, not general cross-room support. Any different room, floor, transition,
 or asynchronous state is expected to refuse safely. This remains a crash-risk
@@ -102,7 +104,7 @@ The build emits a version-labelled tester package plus a stable compatibility
 name:
 
 ```text
-build-lm-diag/Moonshine-Luigis-Mansion-Full-State-Experimental-0.3.20.zip
+build-lm-diag/Moonshine-Luigis-Mansion-Full-State-Experimental-0.3.21.zip
 build-lm-diag/moonshine_luigis_mansion_launcher.zip
 ```
 
@@ -126,14 +128,15 @@ disc or ISO.
 
 Back up any real memory-card data, install the four packaged files under
 `apps/moonshine_luigis_mansion/`, and launch a clean revision-0 GLMJ01 image.
-The overlay must start with `LM STATE X0.3.20`; wait until `F`, `C`, `H`, and
+The overlay must start with `LM STATE X0.3.21`; wait until `F`, `C`, `H`, and
 `G` are `OK` and `ST` is at least 3. The trailing `X` byte reports the guarded
 cross-room path: `X00` means it has not been attempted, `XA0` means it passed,
 and `X01` through `X08` identify the refusal stage: epoch mask, saved-census
 generation, volume census, list topology, archive ownership, room streamer,
 model census, or model replacement shape. If `ST` remains zero, photograph the
 short gate name and eight-digit value shown after `G:`; they identify the
-rejected live condition without weakening it.
+rejected live condition without weakening it. `G:PTCL` specifically means the
+JPA pool ownership or fixed-sentinel audit failed, so do not attempt a state.
 
 Press D-pad Left once. `S:SAVED` and a nonzero `SZ` confirm a committed slot.
 Change a visible state in the same room, then press D-pad Right once. A good
