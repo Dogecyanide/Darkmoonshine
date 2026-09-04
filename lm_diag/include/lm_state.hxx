@@ -20,9 +20,9 @@ enum class Status : u32 {
 // snapshot request. Call only after LM's complete retail presenter returns.
 void tick();
 
-// These no-op outside the bounded trace window after a successful load.
-// Together with the ARM phase journal they distinguish a restore hang in the
-// main-loop game step from any of the next eight retail presentations.
+// These keep an eight-frame detailed trace after a successful load, then a
+// low-rate tail with a bounded door/streaming watch. Transition edges re-arm
+// exact update-call tracing without journaling every quiet frame.
 void postLoadMilestone(u32 phase);
 void postLoadDetail(u32 phase, u32 arg0, u32 arg1);
 void presenterEnter();

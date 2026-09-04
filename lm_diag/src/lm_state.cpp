@@ -108,7 +108,7 @@ constexpr u32 kMem1End = 0x81800000u;
 constexpr u32 kSnapshotBase = SUSAMUNE_MEM2_SNAPSHOT_PPC_BASE;
 constexpr u32 kSnapshotCapacity = SUSAMUNE_MEM2_SNAPSHOT_SIZE;
 constexpr u32 kSnapshotMagic = 0x4C4D5354u;  // 'LMST'
-constexpr u32 kSnapshotVersion = 7u;
+constexpr u32 kSnapshotVersion = 8u;
 constexpr u32 kHeaderSize = 0x100u;
 constexpr u32 kHeapMetadataStart = 0x3Cu;
 constexpr u32 kHeapMetadataEnd = 0x84u;
@@ -122,6 +122,17 @@ constexpr u32 kHeapMetadataOffset = kHeaderSize;
 // object, which owns boot-allocated double-buffer pointers.
 constexpr u32 kRendererStateStart = 0x80398770u;
 constexpr u32 kRendererStateEnd = 0x803989E0u;
+// The view callbacks rebuild the renderer block from these fixed camera
+// descriptors and manager tables every frame. They survive room streaming,
+// so leaving them live produces a restored Luigi under the future camera.
+constexpr u32 kCameraDescriptorStateStart = 0x80398BF8u;
+constexpr u32 kCameraDescriptorStateEnd = 0x80398C50u;
+constexpr u32 kCameraManagerStateStart = 0x80399B60u;
+constexpr u32 kCameraManagerStateEnd = 0x80399C60u;
+constexpr u32 kCameraObjectPointerTable = 0x80399BE0u;
+constexpr u32 kCameraObjectCount = 3u;
+constexpr u32 kCameraObjectSize = 0xECu;
+constexpr u32 kCameraObjectRecordSize = 0x100u;
 constexpr u32 kInGameFlagsBase = 0x803C7CA0u;
 constexpr u32 kInGameFlagsOffset = 0x659u;
 constexpr u32 kInGameFlagsSize = 0x20u;
@@ -176,6 +187,10 @@ struct StaticRange {
 // +0x08 begins an OSMessageQueue.
 constexpr StaticRange kStateStaticRanges[] = {
     {kRendererStateStart, kRendererStateEnd - kRendererStateStart},
+    {kCameraDescriptorStateStart,
+     kCameraDescriptorStateEnd - kCameraDescriptorStateStart},
+    {kCameraManagerStateStart,
+     kCameraManagerStateEnd - kCameraManagerStateStart},
     {kModelTableBase, kModelTableSize},
     {kModelRegistryBase, kModelRegistrySize},
     {kResourceMapBase, kResourceStateEnd - kResourceMapBase},
@@ -201,7 +216,9 @@ constexpr u32 kStateStaticRangeCount =
 constexpr u32 kStateStaticsOffset =
     kHeapMetadataOffset + kHeapMetadataSize;
 constexpr u32 kStateStaticsSize =
-    (kRendererStateEnd - kRendererStateStart) + kModelTableSize +
+    (kRendererStateEnd - kRendererStateStart) +
+    (kCameraDescriptorStateEnd - kCameraDescriptorStateStart) +
+    (kCameraManagerStateEnd - kCameraManagerStateStart) + kModelTableSize +
     kModelRegistrySize + (kResourceStateEnd - kResourceMapBase) +
     kInGameFlagsSize +
     (kModelOutputStateEnd - kModelOutputStateStart) +
@@ -211,12 +228,21 @@ constexpr u32 kStateStaticsSize =
     (kGameSdata1End - kGameSdata1Start) +
     (kGameSbss0End - kGameSbss0Start) +
     (kGameSbss1End - kGameSbss1Start) + 5u * sizeof(u32);
+constexpr u32 kCameraObjectStateOffset =
+    kStateStaticsOffset + kStateStaticsSize;
+constexpr u32 kCameraObjectStateSize =
+    kCameraObjectCount * kCameraObjectRecordSize;
 constexpr u32 kHeapDataOffset =
-    (kStateStaticsOffset + kStateStaticsSize + 31u) & ~31u;
+    (kCameraObjectStateOffset + kCameraObjectStateSize + 31u) & ~31u;
 constexpr u16 kDPadLeft = 0x0001u;
 constexpr u16 kDPadRight = 0x0002u;
+constexpr u16 kButtonA = 0x0100u;
 constexpr u32 kRequiredStableFrames = 3u;
 constexpr u32 kPostLoadTraceFrameLimit = 8u;
+constexpr u32 kPostLoadTraceLingeringFrameLimit = 7200u;
+constexpr u32 kPostLoadTraceHeartbeatFrames = 300u;
+constexpr u32 kPostLoadDoorWindowFrames = 240u;
+constexpr u32 kPostLoadTransitionBurstUpdates = 2u;
 constexpr u32 kMaxVolumes = 32u;
 constexpr u32 kVolumeRemovedSlots = 3u;
 constexpr u32 kVolumeAddedSlots = 3u;
@@ -363,6 +389,19 @@ struct LiveIdentity {
     u32 mainLoopExit;
 };
 
+struct PostLoadTransitionWatch {
+    u32 mapValue;
+    u32 sceneValue;
+    u32 pendingScene;
+    u32 loopExit;
+    u32 dvdOutstanding;
+    u32 aram0;
+    u32 aram1;
+    u32 resourceWantedCount;
+    u32 volumeTail;
+    u32 volumeCount;
+};
+
 struct SnapshotHeader {
     u32 magic;
     u32 version;
@@ -435,12 +474,28 @@ static_assert(kSnapshotBase + kSnapshotCapacity ==
               "LM state must end before the config/crash mailboxes");
 static_assert((kHeapDataOffset & 31u) == 0,
               "LM heap payload must be cache-line aligned");
-static_assert(kStateStaticsSize == 0x12D78u,
+static_assert(kStateStaticsSize == 0x12ED0u,
               "LM static manifest size drifted");
-static_assert(kHeapDataOffset == 0x12EC0u,
+static_assert(kCameraObjectStateOffset == 0x13018u,
+              "LM camera-object sidecar offset drifted");
+static_assert(kCameraObjectStateSize == 0x300u,
+              "LM camera-object sidecar size drifted");
+static_assert(kHeapDataOffset == 0x13320u,
               "LM static manifest packing drifted");
 static_assert(kRendererStateEnd - kRendererStateStart == 0x270u,
               "LM renderer snapshot boundary drifted");
+static_assert(kCameraDescriptorStateEnd - kCameraDescriptorStateStart ==
+                  0x58u,
+              "LM camera descriptor snapshot boundary drifted");
+static_assert(kCameraManagerStateEnd - kCameraManagerStateStart == 0x100u,
+              "LM camera manager snapshot boundary drifted");
+static_assert(kCameraObjectPointerTable >= kCameraManagerStateStart &&
+                  kCameraObjectPointerTable +
+                          kCameraObjectCount * sizeof(u32) <=
+                      kCameraManagerStateEnd,
+              "LM camera-object roots left the captured manager range");
+static_assert(kCameraDescriptorStateEnd == kResourceMapBase,
+              "LM camera descriptors must stop before room resources");
 static_assert(kGrainManagerStateEnd - kGrainManagerStateStart == 0x970u,
               "LM grain-manager snapshot boundary drifted");
 static_assert(kGameSdata0End == kCurrentSceneGlobal &&
@@ -656,6 +711,12 @@ u16 sPreviousButtons;
 u32 sGateValue;
 u32 sPostLoadTraceState;
 u32 sPostLoadTraceFrame;
+u32 sPostLoadTraceHeartbeat;
+u16 sPostLoadTraceButtons;
+bool sPostLoadTraceBurst;
+u32 sPostLoadDoorWindow;
+u32 sPostLoadTraceBurstUpdates;
+PostLoadTransitionWatch sPostLoadTransitionWatch;
 u32 sCrossRoomGuard;
 
 void traceSavePhase(u32 phase, u32 detail) {
@@ -979,6 +1040,105 @@ void copyBytes(void *destination, const void *source, u32 size) {
     const volatile u8 *in = reinterpret_cast<const volatile u8 *>(source);
     for (u32 i = 0; i < size; ++i) {
         out[i] = in[i];
+    }
+}
+
+void samplePostLoadTransitionWatch(PostLoadTransitionWatch *watch) {
+    watch->mapValue = readWord(kMapValueGlobal);
+    watch->sceneValue = readWord(kSceneValueGlobal);
+    watch->pendingScene = readWord(kMainLoopPendingSceneGlobal);
+    watch->loopExit = readWord(kMainLoopExitGlobal);
+    watch->dvdOutstanding = readWord(kDvdOutstandingGlobal);
+    watch->aram0 = readWord(kAramList0Global + 8u);
+    watch->aram1 = readWord(kAramList1Global + 8u);
+    watch->resourceWantedCount = readWord(kResourceWantedCountGlobal);
+    watch->volumeTail = readWord(kVolumeListGlobal + 4u);
+    watch->volumeCount = readWord(kVolumeListGlobal + 8u);
+}
+
+bool refreshPostLoadTransitionWatch() {
+    PostLoadTransitionWatch live;
+    samplePostLoadTransitionWatch(&live);
+    const bool changed =
+        memcmp(&live, &sPostLoadTransitionWatch, sizeof(live)) != 0;
+    copyWords(&sPostLoadTransitionWatch, &live, sizeof(live));
+    return changed;
+}
+
+u32 cameraObjectRecordAddress(u32 index) {
+    return kSnapshotBase + kCameraObjectStateOffset +
+           index * kCameraObjectRecordSize;
+}
+
+bool cameraObjectsValid(const LiveIdentity &identity,
+                        bool matchSnapshot) {
+    for (u32 i = 0; i < kCameraObjectCount; ++i) {
+        const u32 target =
+            readWord(kCameraObjectPointerTable + i * sizeof(u32));
+        if (!isMem1ByteRange(target, kCameraObjectSize) ||
+            !rangeInside(target, target + kCameraObjectSize,
+                         identity.rootHeapStart, identity.rootHeapEnd)) {
+            return false;
+        }
+        for (u32 j = 0; j < i; ++j) {
+            if (target ==
+                readWord(kCameraObjectPointerTable + j * sizeof(u32))) {
+                return false;
+            }
+        }
+        if (!matchSnapshot) {
+            continue;
+        }
+        const u32 record = cameraObjectRecordAddress(i);
+        const bool inGameHeap =
+            rangeInside(target, target + kCameraObjectSize,
+                        identity.heapStart, identity.heapEnd);
+        const u32 capturedSize = readWord(record + sizeof(u32));
+        if (readWord(record) != target ||
+            capturedSize != (inGameHeap ? 0u : kCameraObjectSize)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+void captureCameraObjects(const LiveIdentity &identity) {
+    for (u32 i = 0; i < kCameraObjectCount; ++i) {
+        const u32 target =
+            readWord(kCameraObjectPointerTable + i * sizeof(u32));
+        const u32 record = cameraObjectRecordAddress(i);
+        const bool inGameHeap =
+            rangeInside(target, target + kCameraObjectSize,
+                        identity.heapStart, identity.heapEnd);
+        writeWord(record, target);
+        writeWord(record + sizeof(u32),
+                  inGameHeap ? 0u : kCameraObjectSize);
+        if (!inGameHeap) {
+            copyBytes(reinterpret_cast<void *>(record + 2u * sizeof(u32)),
+                      reinterpret_cast<void *>(target), kCameraObjectSize);
+        }
+    }
+}
+
+void restoreCameraObjects() {
+    for (u32 i = 0; i < kCameraObjectCount; ++i) {
+        const u32 record = cameraObjectRecordAddress(i);
+        if (readWord(record + sizeof(u32)) == kCameraObjectSize) {
+            copyBytes(reinterpret_cast<void *>(readWord(record)),
+                      reinterpret_cast<void *>(record + 2u * sizeof(u32)),
+                      kCameraObjectSize);
+        }
+    }
+}
+
+void storeCameraObjects() {
+    for (u32 i = 0; i < kCameraObjectCount; ++i) {
+        const u32 record = cameraObjectRecordAddress(i);
+        if (readWord(record + sizeof(u32)) == kCameraObjectSize) {
+            reinterpret_cast<CacheRangeFn>(kDCStoreRangeAddr)(
+                reinterpret_cast<void *>(readWord(record)),
+                kCameraObjectSize);
+        }
     }
 }
 
@@ -2375,6 +2535,10 @@ void saveState() {
         setReject(LMState::Status::BadHeap, preflight.heap);
         return;
     }
+    if (!cameraObjectsValid(preflight, false)) {
+        setReject(LMState::Status::Busy, kCameraObjectPointerTable);
+        return;
+    }
 
     // Drain prior live handles through LM's own scene-change path. Its new
     // bootstrap handle remains in uncaptured system audio state.
@@ -2385,7 +2549,8 @@ void saveState() {
     }
     traceSavePhase(0x21u, preflight.audioBasic);
     LiveIdentity before;
-    if (!buildIdentity(&before) || !ioIdle() || !heapsHealthy(before)) {
+    if (!buildIdentity(&before) || !ioIdle() || !heapsHealthy(before) ||
+        !cameraObjectsValid(before, false)) {
         setReject(LMState::Status::Busy, preflight.heap);
         return;
     }
@@ -2399,7 +2564,8 @@ void saveState() {
     const FreezeState freeze = freezeBegin();
     traceSavePhase(0x43u, before.heap);
     LiveIdentity live;
-    if (!buildIdentity(&live) || !sameIdentity(before, live)) {
+    if (!buildIdentity(&live) || !sameIdentity(before, live) ||
+        !cameraObjectsValid(live, false)) {
         freezeEnd(freeze);
         setReject(LMState::Status::Busy, live.heap);
         return;
@@ -2483,6 +2649,7 @@ void saveState() {
               reinterpret_cast<void *>(live.heap + kHeapMetadataStart),
               kHeapMetadataSize);
     captureStaticRanges();
+    captureCameraObjects(live);
     traceSavePhase(0x63u, kStateStaticsSize);
     copyWords(reinterpret_cast<void *>(kSnapshotBase + kHeapDataOffset),
               reinterpret_cast<void *>(live.heapStart), live.heapSize);
@@ -2503,6 +2670,16 @@ void saveState() {
 
     sSnapshotSize = totalSize;
     sStatus = LMState::Status::Saved;
+    if (sPostLoadTraceState == 3u) {
+        // A successful save starts a fresh tail for the next door attempt.
+        sPostLoadTraceFrame = kPostLoadTraceFrameLimit;
+        sPostLoadTraceHeartbeat = 0u;
+        sPostLoadTraceButtons = readHalf(kPadStatusGlobal);
+        sPostLoadTraceBurst = false;
+        sPostLoadDoorWindow = 0u;
+        sPostLoadTraceBurstUpdates = 0u;
+        samplePostLoadTransitionWatch(&sPostLoadTransitionWatch);
+    }
     traceSavePhase(0x7Fu, totalSize);
     LMCrash::note(kEventStateSave, live.heap, live.heapSize);
 }
@@ -2576,6 +2753,10 @@ void loadState() {
         setReject(LMState::Status::BadHeap, preflight.heap);
         return;
     }
+    if (!cameraObjectsValid(preflight, true)) {
+        setReject(LMState::Status::Epoch, kCameraObjectPointerTable);
+        return;
+    }
 
     traceLoadPhase(0x20u, preflight.audioBasic);
     if (!quiesceAudio(preflight)) {
@@ -2584,7 +2765,8 @@ void loadState() {
     }
     traceLoadPhase(0x21u, preflight.audioBasic);
     LiveIdentity before;
-    if (!buildIdentity(&before) || !ioIdle()) {
+    if (!buildIdentity(&before) || !ioIdle() ||
+        !cameraObjectsValid(before, true)) {
         setReject(LMState::Status::Epoch, preflight.heap);
         return;
     }
@@ -2618,7 +2800,8 @@ void loadState() {
              ? guardedCrossRoomRestoreAllowed(header, live, mismatch)
              : mismatch.mask == 0u);
     if (!liveBuilt || !sameIdentity(before, live) || !liveEpochAllowed ||
-        !headerMatchesLive(header, live, guardedCrossRoom)) {
+        !headerMatchesLive(header, live, guardedCrossRoom) ||
+        !cameraObjectsValid(live, true)) {
         freezeEnd(freeze);
         setReject(LMState::Status::Busy, live.heap);
         return;
@@ -2638,6 +2821,7 @@ void loadState() {
     // queues live.  The guarded room path also rewinds the fixed model/room
     // owner tables and JKR volume anchors that refer into the game heap.
     restoreStaticRanges();
+    restoreCameraObjects();
     writeWord(kRandomStateGlobal, header->randomState);
     traceLoadPhase(0x63u, kStateStaticsSize);
 
@@ -2657,6 +2841,7 @@ void loadState() {
         kHeapMetadataSize);
     traceLoadPhase(0x66u, kHeapMetadataSize);
     storeStaticRanges();
+    storeCameraObjects();
     reinterpret_cast<CacheRangeFn>(kDCStoreRangeAddr)(
         reinterpret_cast<void *>(kRandomStateGlobal), sizeof(u32));
     traceLoadPhase(0x67u, kStateStaticsSize);
@@ -2765,13 +2950,70 @@ const char *volumeOwnerText(u32 owner) {
 namespace LMState {
 
 void postLoadMilestone(u32 phase) {
-    if (sPostLoadTraceState != 0u) {
+    if (sPostLoadTraceState == 1u || sPostLoadTraceState == 2u) {
         tracePostLoadPhase(phase, sPostLoadTraceFrame);
+        return;
+    }
+    if (sPostLoadTraceState != 3u) {
+        return;
+    }
+
+    // Keep the exact wrappers off until a door action or its streaming state
+    // changes; the ARM fsyncs every phase it observes.
+    if (phase >= 0x96u && phase <= 0x9Bu) {
+        tracePostLoadPhase(phase, sPostLoadTraceFrame);
+    } else if (phase == 0x8Du) {
+        const u16 buttons = readHalf(kPadStatusGlobal);
+        const bool aEdge = (buttons & kButtonA) != 0u &&
+                           (sPostLoadTraceButtons & kButtonA) == 0u;
+        sPostLoadTraceButtons = buttons;
+        const bool transitionChanged =
+            (aEdge || sPostLoadDoorWindow != 0u) &&
+            refreshPostLoadTransitionWatch();
+        if (aEdge) {
+            sPostLoadDoorWindow = kPostLoadDoorWindowFrames;
+            sPostLoadTraceHeartbeat = 0u;
+            if (sPostLoadTraceBurstUpdates == 0u) {
+                sPostLoadTraceBurstUpdates = 1u;
+            }
+        }
+        if (transitionChanged && sPostLoadDoorWindow != 0u &&
+            sPostLoadTraceBurstUpdates <
+                kPostLoadTransitionBurstUpdates) {
+            sPostLoadTraceBurstUpdates =
+                kPostLoadTransitionBurstUpdates;
+        }
+        sPostLoadTraceBurst = sPostLoadTraceBurstUpdates != 0u;
+        if (sPostLoadTraceBurst) {
+            tracePostLoadPhase(phase, sPostLoadTraceFrame);
+        }
+    } else if (phase == 0x8Eu) {
+        const bool traced = sPostLoadTraceBurst;
+        if (traced) {
+            tracePostLoadPhase(phase, sPostLoadTraceFrame);
+            if (sPostLoadTraceBurstUpdates != 0u) {
+                --sPostLoadTraceBurstUpdates;
+            }
+        }
+        sPostLoadTraceBurst = false;
+        if (sPostLoadDoorWindow != 0u &&
+            refreshPostLoadTransitionWatch()) {
+            sPostLoadTraceBurstUpdates =
+                kPostLoadTransitionBurstUpdates;
+            if (!traced) {
+                tracePostLoadPhase(phase, sPostLoadTraceFrame);
+            }
+        }
     }
 }
 
 void postLoadDetail(u32 phase, u32 arg0, u32 arg1) {
-    if (sPostLoadTraceState != 0u) {
+    const bool detailed =
+        sPostLoadTraceState == 1u || sPostLoadTraceState == 2u;
+    const bool doorBurst = sPostLoadTraceState == 3u &&
+                           sPostLoadTraceBurst &&
+                           (phase == 0xE0u || phase == 0xE1u);
+    if (detailed || doorBurst) {
         LMCrash::phase(SUSAMUNE_PHASE_ACTION_POST_LOAD, phase, arg0, arg1);
     }
 }
@@ -2779,12 +3021,39 @@ void postLoadDetail(u32 phase, u32 arg0, u32 arg1) {
 void presenterEnter() {
     if (sPostLoadTraceState == 1u) {
         if (sPostLoadTraceFrame >= kPostLoadTraceFrameLimit) {
-            sPostLoadTraceState = 0u;
+            sPostLoadTraceState = 3u;
+            sPostLoadTraceHeartbeat = 0u;
+            sPostLoadTraceButtons = readHalf(kPadStatusGlobal);
+            sPostLoadTraceBurst = false;
+            sPostLoadDoorWindow = 0u;
+            sPostLoadTraceBurstUpdates = 0u;
+            samplePostLoadTransitionWatch(&sPostLoadTransitionWatch);
+            tracePostLoadPhase(0x87u, sPostLoadTraceFrame);
             return;
         }
         ++sPostLoadTraceFrame;
         tracePostLoadPhase(0x81u, sPostLoadTraceFrame);
         sPostLoadTraceState = 2u;
+    } else if (sPostLoadTraceState == 3u) {
+        if (sPostLoadTraceFrame >=
+            kPostLoadTraceFrameLimit + kPostLoadTraceLingeringFrameLimit) {
+            sPostLoadTraceState = 0u;
+            sPostLoadTraceBurst = false;
+            sPostLoadDoorWindow = 0u;
+            sPostLoadTraceBurstUpdates = 0u;
+            return;
+        }
+        ++sPostLoadTraceFrame;
+        if (++sPostLoadTraceHeartbeat >= kPostLoadTraceHeartbeatFrames) {
+            sPostLoadTraceHeartbeat = 0u;
+            if (sPostLoadDoorWindow == 0u &&
+                sPostLoadTraceBurstUpdates == 0u) {
+                tracePostLoadPhase(0x87u, sPostLoadTraceFrame);
+            }
+        }
+        if (sPostLoadDoorWindow != 0u) {
+            --sPostLoadDoorWindow;
+        }
     }
 }
 

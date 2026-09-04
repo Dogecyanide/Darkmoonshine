@@ -244,11 +244,25 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn("kHeapMetadataStart = 0x3Cu", STATE_SOURCE)
         self.assertIn("kHeapMetadataEnd = 0x84u", STATE_SOURCE)
         self.assertIn("kExpHeapAlignment = 16u", STATE_SOURCE)
-        self.assertIn("kSnapshotVersion = 7u", STATE_SOURCE)
+        self.assertIn("kSnapshotVersion = 8u", STATE_SOURCE)
         self.assertIn("kRendererStateStart = 0x80398770u", STATE_SOURCE)
         self.assertIn("kRendererStateEnd = 0x803989E0u", STATE_SOURCE)
         self.assertIn(
             "{kRendererStateStart, kRendererStateEnd - kRendererStateStart}",
+            STATE_SOURCE,
+        )
+        self.assertIn("kCameraDescriptorStateStart = 0x80398BF8u", STATE_SOURCE)
+        self.assertIn("kCameraDescriptorStateEnd = 0x80398C50u", STATE_SOURCE)
+        self.assertIn("kCameraManagerStateStart = 0x80399B60u", STATE_SOURCE)
+        self.assertIn("kCameraManagerStateEnd = 0x80399C60u", STATE_SOURCE)
+        self.assertIn(
+            "{kCameraDescriptorStateStart,\n"
+            "     kCameraDescriptorStateEnd - kCameraDescriptorStateStart}",
+            STATE_SOURCE,
+        )
+        self.assertIn(
+            "{kCameraManagerStateStart,\n"
+            "     kCameraManagerStateEnd - kCameraManagerStateStart}",
             STATE_SOURCE,
         )
         self.assertIn("kInGameFlagsBase = 0x803C7CA0u", STATE_SOURCE)
@@ -278,8 +292,10 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn("kGameSbss0End = 0x804A0C90u", STATE_SOURCE)
         self.assertIn("kGameSbss1Start = 0x804A0CB0u", STATE_SOURCE)
         self.assertIn("kGameSbss1End = 0x804A1D10u", STATE_SOURCE)
-        self.assertIn("kStateStaticsSize == 0x12D78u", STATE_SOURCE)
-        self.assertIn("kHeapDataOffset == 0x12EC0u", STATE_SOURCE)
+        self.assertIn("kStateStaticsSize == 0x12ED0u", STATE_SOURCE)
+        self.assertIn("kCameraObjectStateOffset == 0x13018u", STATE_SOURCE)
+        self.assertIn("kCameraObjectStateSize == 0x300u", STATE_SOURCE)
+        self.assertIn("kHeapDataOffset == 0x13320u", STATE_SOURCE)
         self.assertIn("captureStaticRanges();", STATE_SOURCE)
         self.assertIn("restoreStaticRanges();", STATE_SOURCE)
         self.assertIn("storeStaticRanges();", STATE_SOURCE)
@@ -368,7 +384,7 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn("Susamune: epoch mask=%08X first=%s", KERNEL_CRASH_SOURCE)
         self.assertIn("LMEpochFieldName(mask)", KERNEL_CRASH_SOURCE)
         self.assertIn(
-            '"LM STATE X0.3.18 F:%s C:%s H:%s X%02lX"', DIAG_SOURCE
+            '"LM STATE X0.3.19 F:%s C:%s H:%s X%02lX"', DIAG_SOURCE
         )
         self.assertIn("LMState::crossRoomGuardCode()", DIAG_SOURCE)
         self.assertIn(
@@ -402,7 +418,7 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn('"VC %08lX>%08lX D%08lX>%08lX"', DIAG_SOURCE)
         self.assertIn("guardedCrossRoomRestoreAllowed", STATE_SOURCE)
         self.assertIn("repairSavedVolumeList", STATE_SOURCE)
-        self.assertIn("kSnapshotVersion = 7u", STATE_SOURCE)
+        self.assertIn("kSnapshotVersion = 8u", STATE_SOURCE)
 
     def test_resource_manager_epoch_census_is_bounded(self) -> None:
         self.assertIn("kResourceMapBase = 0x80398C50u", STATE_SOURCE)
@@ -477,7 +493,22 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
                       STATE_SOURCE)
         self.assertIn("kModelRegistryOutputStateEnd = 0x803E3CF8u",
                       STATE_SOURCE)
-        self.assertIn("kSnapshotVersion = 7u", STATE_SOURCE)
+        self.assertIn("kSnapshotVersion = 8u", STATE_SOURCE)
+
+    def test_camera_state_tracks_persistent_views_safely(self) -> None:
+        self.assertIn("kCameraObjectPointerTable = 0x80399BE0u", STATE_SOURCE)
+        self.assertIn("kCameraObjectCount = 3u", STATE_SOURCE)
+        self.assertIn("kCameraObjectSize = 0xECu", STATE_SOURCE)
+        self.assertIn("bool cameraObjectsValid", STATE_SOURCE)
+        self.assertIn("readWord(record) != target", STATE_SOURCE)
+        self.assertIn("captureCameraObjects(live);", STATE_SOURCE)
+        self.assertIn("restoreCameraObjects();", STATE_SOURCE)
+        self.assertIn("storeCameraObjects();", STATE_SOURCE)
+        capture = STATE_SOURCE.split("void captureCameraObjects", 1)[1].split(
+            "void restoreCameraObjects", 1
+        )[0]
+        self.assertIn("inGameHeap ? 0u : kCameraObjectSize", capture)
+        self.assertIn("if (!inGameHeap)", capture)
 
     def test_guarded_cross_room_raw_rewind_contract(self) -> None:
         guard_codes = (
@@ -628,6 +659,14 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
 
     def test_post_load_trace_spans_multiple_restored_frames(self) -> None:
         self.assertIn("kPostLoadTraceFrameLimit = 8u", STATE_SOURCE)
+        self.assertIn(
+            "kPostLoadTraceLingeringFrameLimit = 7200u", STATE_SOURCE
+        )
+        self.assertIn("kPostLoadTraceHeartbeatFrames = 300u", STATE_SOURCE)
+        self.assertIn("kPostLoadDoorWindowFrames = 240u", STATE_SOURCE)
+        self.assertIn(
+            "kPostLoadTransitionBurstUpdates = 2u", STATE_SOURCE
+        )
         self.assertIn("u32 sPostLoadTraceFrame", STATE_SOURCE)
         load_success = STATE_SOURCE.split(
             "sStatus = LMState::Status::Loaded", 1
@@ -640,6 +679,63 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         after_tick = STATE_SOURCE.split("void presenterAfterTick()", 1)[1]
         self.assertLess(after_tick.index("tracePostLoadPhase(0x86u"),
                         after_tick.index("sPostLoadTraceState = 1u"))
+
+    def test_post_load_trace_has_low_overhead_door_tail(self) -> None:
+        watch = STATE_SOURCE.split(
+            "void samplePostLoadTransitionWatch", 1
+        )[1].split("bool refreshPostLoadTransitionWatch", 1)[0]
+        for signal in (
+            "kMapValueGlobal",
+            "kSceneValueGlobal",
+            "kMainLoopPendingSceneGlobal",
+            "kMainLoopExitGlobal",
+            "kDvdOutstandingGlobal",
+            "kAramList0Global + 8u",
+            "kAramList1Global + 8u",
+            "kResourceWantedCountGlobal",
+            "kVolumeListGlobal + 4u",
+            "kVolumeListGlobal + 8u",
+        ):
+            self.assertIn(signal, watch)
+        milestone = STATE_SOURCE.split(
+            "void postLoadMilestone(u32 phase)", 1
+        )[1].split("void postLoadDetail", 1)[0]
+        self.assertIn("sPostLoadTraceState != 3u", milestone)
+        self.assertIn("phase >= 0x96u && phase <= 0x9Bu", milestone)
+        self.assertIn("phase == 0x8Du", milestone)
+        self.assertIn(
+            "sPostLoadDoorWindow = kPostLoadDoorWindowFrames", milestone
+        )
+        self.assertIn("sPostLoadTraceBurstUpdates = 1u", milestone)
+        self.assertIn("refreshPostLoadTransitionWatch();", milestone)
+        self.assertIn(
+            "sPostLoadTraceBurstUpdates =\n"
+            "                kPostLoadTransitionBurstUpdates;",
+            milestone,
+        )
+        self.assertIn("phase == 0x8Eu", milestone)
+        self.assertIn("--sPostLoadTraceBurstUpdates", milestone)
+        detail = STATE_SOURCE.split(
+            "void postLoadDetail(u32 phase", 1
+        )[1].split("void presenterEnter", 1)[0]
+        self.assertIn("sPostLoadTraceState == 3u", detail)
+        self.assertIn("phase == 0xE0u || phase == 0xE1u", detail)
+        presenter = STATE_SOURCE.split("void presenterEnter()", 1)[1]
+        self.assertIn("sPostLoadTraceState = 3u", presenter)
+        self.assertIn("tracePostLoadPhase(0x87u", presenter)
+        self.assertIn("--sPostLoadDoorWindow", presenter)
+
+        save_success = STATE_SOURCE.split(
+            "sStatus = LMState::Status::Saved", 1
+        )[1].split("traceSavePhase(0x7Fu", 1)[0]
+        self.assertIn("sPostLoadTraceState == 3u", save_success)
+        self.assertIn(
+            "sPostLoadTraceFrame = kPostLoadTraceFrameLimit", save_success
+        )
+        self.assertIn(
+            "samplePostLoadTransitionWatch(&sPostLoadTransitionWatch)",
+            save_success,
+        )
 
     def test_state_transaction_runs_after_complete_retail_presenter(self) -> None:
         wrapper = DIAG_SOURCE.split(

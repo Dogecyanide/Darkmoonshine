@@ -14,7 +14,7 @@ unmodified.
 The overlay rows are:
 
 ```text
-LM STATE X0.3.18 F:<floor> C:<canary> H:<heap check> X<cross-room guard>
+LM STATE X0.3.19 F:<floor> C:<canary> H:<heap check> X<cross-room guard>
 S:<state status> ST<stable frames> SZ<snapshot KiB> G:<gate> <gate value>
 E:<first epoch field> M<mismatch mask> <saved value>><live value>
 V:<topology> S<saved count>>L<live count> -<removed> +<added> F<save>/<live fault>
@@ -185,10 +185,22 @@ by the `0.3.14` captures:
 804A2040-804A2044  current directory ID
 ```
 
-Together with the earlier ranges, the static payload is `0x12D78` bytes and
-the aligned game-heap payload begins at snapshot offset `0x12EC0`. Snapshot
-format version 7 prevents an older MEM2 slot from being mistaken for this
-layout.
+Version `0.3.19` adds the camera sources which regenerate the already-captured
+renderer block every frame:
+
+```text
+80398BF8-80398C50  active viewport and per-view camera descriptors
+80399B60-80399C60  camera parameter, view-pointer, control, and vector state
+```
+
+The three persistent `0xEC`-byte camera-view objects normally live inside the
+gameplay heap and are therefore already covered. A fixed `0x300`-byte sidecar
+records their identities and captures any object found outside that heap; load
+requires every live pointer to remain identical before restoring such an
+object. Together with the earlier ranges, the static payload is `0x12ED0`
+bytes and the aligned game-heap payload begins at snapshot offset `0x13320`.
+Snapshot format version 8 prevents an older MEM2 slot from being mistaken for
+this layout.
 
 Same-room loads still require an exact epoch match. The experimental
 cross-room exception requires the epoch mismatch mask to be exactly
@@ -216,11 +228,19 @@ The invocation containing the load can only emit `97` because tracing was not
 armed at its entry. A final `97` isolates the following scene-table virtual
 call.
 
-For the `0.3.18` hardware pass, repeat either known failing resource shape:
+For the `0.3.19` hardware pass, repeat either known failing resource shape:
 save at the foyer bottom and load at the top, or save immediately before a
-foyer door and load after entering it. After a hard lock, preserve
-`/ndebug.log`; its final `E0` record identifies the update call that was
-entered and did not return, while a final `E1` proves that call completed.
+foyer door and load after entering it. Detailed tracing covers the first eight
+restored presentations. It then becomes a low-rate two-minute tail; an A-button
+edge just before `MAIN GAME` update opens a 240-presentation watch and enables
+the existing `E0/E1` wrappers for the initiating update. During that watch,
+changes to the map/scene, pending or exiting loop state, DVD/ARAM activity,
+wanted-resource count, or mounted-volume tail/count enable the wrappers for two
+more updates. A successful save during the tail restarts its two-minute deadline
+and transition baseline. After a hard lock or reboot, preserve `/ndebug.log`; a
+final `E0` identifies the update call that was entered and did not return,
+while a final `E1` proves that call completed. `87` is the tail start and its
+300-frame heartbeat; heartbeats pause during the door watch.
 
 Build the Homebrew Channel package with:
 

@@ -6,7 +6,7 @@ Mansion (`GLMJ01`).
 
 ## Current status
 
-`Full-State Experimental 0.3.18` is the current hardware-testable state build.
+`Full-State Experimental 0.3.19` is the current hardware-testable state build.
 
 - The custom Nintendont launcher accepts only the verified Japanese `GLMJ01`
   revision-0 executable for injection.
@@ -14,10 +14,12 @@ Mansion (`GLMJ01`).
 - One transactional slot uses Moonshine's protected 15.94 MiB MEM2 bank.
 - The slot captures the complete secondary gameplay heap, its allocator and
   disposer metadata, audited gameplay-static SDATA/SBSS slices with known
-  live-owned blocks excluded, LM's standalone camera/viewport state, the
-  main-loop control pair, both grain-effect managers and their list sentinels,
-  the verified room/map flag slice, the fixed room-streamer and model-resource
-  tables, the mounted-volume list header, and libc RNG state.
+  live-owned blocks excluded, LM's renderer state, persistent camera
+  descriptors and manager tables, the main-loop control pair, both
+  grain-effect managers and their list sentinels, the verified room/map flag
+  slice, the fixed room-streamer and model-resource tables, the mounted-volume
+  list header, and libc RNG state. The three persistent camera-view objects
+  receive a guarded sidecar only if they are outside the gameplay heap.
 - Save/load is refused while DVD, ARAM, or memory-card work is active, while
   the heap is unstable, when a slot checksum fails, or when the observed live
   allocator/resource markers differ from the saved ones.
@@ -33,9 +35,12 @@ Mansion (`GLMJ01`).
   Moonshine's proven post-draw timing. Additional journal markers split the
   first restored draw into matrix, scene-callback, and projection stages, then
   identify the exact direct renderer call if the callback does not return.
-- Post-load tracing remains armed for eight complete restored frames. It now
-  brackets every direct subsystem call in `MAIN GAME`'s update routine, so the
-  ARM journal identifies the exact first-frame call that does not return.
+- Post-load tracing records eight complete restored frames, then keeps a
+  low-rate two-minute tail. A successful save during that tail refreshes its
+  deadline. A fresh A-button press opens a 240-frame door watch: the initiating
+  `MAIN GAME` update is traced exactly, and changes in room, scene, streaming,
+  resource, or archive state re-arm exact tracing for two updates without
+  tracing every quiet frame.
 - Cross-room checks retain a complete 22-field epoch mask plus the saved and
   live values of the highest-priority mismatch on both the overlay and in
   `/ndebug.log`.
@@ -54,7 +59,7 @@ Mansion (`GLMJ01`).
 Controls are D-pad Left to save and D-pad Right to load. Confirm same-room
 restores first, then repeat the two bounded tests that produced the 0.3.14
 captures: save at the foyer bottom and load at the top, followed by save before
-a foyer door and load after it. `0.3.18` may attempt those restores instead of
+a foyer door and load after it. `0.3.19` may attempt those restores instead of
 returning `EPOCH`; a successful load is evidence for this specific resource
 shape, not general cross-room support. Any different room, floor, transition,
 or asynchronous state is expected to refuse safely. This remains a crash-risk
@@ -96,7 +101,7 @@ The build emits a version-labelled tester package plus a stable compatibility
 name:
 
 ```text
-build-lm-diag/Moonshine-Luigis-Mansion-Full-State-Experimental-0.3.18.zip
+build-lm-diag/Moonshine-Luigis-Mansion-Full-State-Experimental-0.3.19.zip
 build-lm-diag/moonshine_luigis_mansion_launcher.zip
 ```
 
@@ -120,7 +125,7 @@ disc or ISO.
 
 Back up any real memory-card data, install the four packaged files under
 `apps/moonshine_luigis_mansion/`, and launch a clean revision-0 GLMJ01 image.
-The overlay must start with `LM STATE X0.3.18`; wait until `F`, `C`, `H`, and
+The overlay must start with `LM STATE X0.3.19`; wait until `F`, `C`, `H`, and
 `G` are `OK` and `ST` is at least 3. The trailing `X` byte reports the guarded
 cross-room path: `X00` means it has not been attempted, `XA0` means it passed,
 and `X01` through `X08` identify the refusal stage: epoch mask, saved-census
@@ -173,9 +178,10 @@ photograph the full diagnostic panel rather than retrying through a different
 transition. If the game crashes, save the
 newest `susamune_crash_a.txt` or `susamune_crash_b.txt` from the game-source
 device before the next experiment overwrites the older rotating report.
-If it hard-locks without a new crash report, power it off, return the SD card,
-and preserve `/ndebug.log`; its final `Susamune: phase` line identifies the
-exact restore or first-post-load boundary that was reached.
+If it hard-locks or reboots without a new crash report, return the SD card and
+preserve `/ndebug.log`. For roughly two minutes after a load or later save, a
+normal A press at a door starts a four-second transition watch. Its final
+`Susamune: phase` line can identify the exact retail call that did not return.
 
 ## Lineage and credits
 
