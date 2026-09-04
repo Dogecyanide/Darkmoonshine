@@ -257,7 +257,7 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn("kHeapMetadataStart = 0x3Cu", STATE_SOURCE)
         self.assertIn("kHeapMetadataEnd = 0x84u", STATE_SOURCE)
         self.assertIn("kExpHeapAlignment = 16u", STATE_SOURCE)
-        self.assertIn("kSnapshotVersion = 11u", STATE_SOURCE)
+        self.assertIn("kSnapshotVersion = 12u", STATE_SOURCE)
         self.assertIn("kTransitionHeaderStateStart = 0x803985D4u", STATE_SOURCE)
         self.assertIn("kTransitionHeaderStateEnd = 0x803985E8u", STATE_SOURCE)
         self.assertIn("kTransitionTailStateStart = 0x80398764u", STATE_SOURCE)
@@ -292,9 +292,39 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
             "     kCameraManagerStateEnd - kCameraManagerStateStart}",
             STATE_SOURCE,
         )
-        self.assertIn("kInGameFlagsBase = 0x803C7CA0u", STATE_SOURCE)
-        self.assertIn("kInGameFlagsOffset = 0x659u", STATE_SOURCE)
-        self.assertIn("kInGameFlagsSize = 0x20u", STATE_SOURCE)
+        self.assertIn("kRoomEventStateStart = 0x803C7CA0u", STATE_SOURCE)
+        self.assertIn("kRoomEventStateEnd = 0x803C8428u", STATE_SOURCE)
+        self.assertIn(
+            "{kRoomEventStateStart, kRoomEventStateEnd - kRoomEventStateStart}",
+            STATE_SOURCE,
+        )
+        self.assertIn("kRoomActorTableStart = 0x803C8490u", STATE_SOURCE)
+        self.assertIn("kRoomActorTableEnd = 0x803C8690u", STATE_SOURCE)
+        self.assertIn("kRoomActorCountGlobal = 0x804A12B8u", STATE_SOURCE)
+        self.assertIn("kRoomActorCapacity = 0x80u", STATE_SOURCE)
+        self.assertIn(
+            "{kRoomActorTableStart, kRoomActorTableEnd - kRoomActorTableStart}",
+            STATE_SOURCE,
+        )
+        self.assertNotIn("kInGameFlagsOffset", STATE_SOURCE)
+        self.assertIn("kDoorVisibilityStateStart = 0x80399510u", STATE_SOURCE)
+        self.assertIn("kDoorVisibilityStateEnd = 0x80399B30u", STATE_SOURCE)
+        self.assertIn(
+            "{kDoorVisibilityStateStart,\n"
+            "     kDoorVisibilityStateEnd - kDoorVisibilityStateStart}",
+            STATE_SOURCE,
+        )
+        self.assertIn(
+            "kRoomVisibilityMaskStateStart = 0x803C2E10u", STATE_SOURCE
+        )
+        self.assertIn(
+            "kRoomVisibilityMaskStateEnd = 0x803C3030u", STATE_SOURCE
+        )
+        self.assertIn(
+            "{kRoomVisibilityMaskStateStart,\n"
+            "     kRoomVisibilityMaskStateEnd - kRoomVisibilityMaskStateStart}",
+            STATE_SOURCE,
+        )
         self.assertIn("kGrainManagerStateStart = 0x803CBAF0u", STATE_SOURCE)
         self.assertIn("kGrainManagerStateEnd = 0x803CC460u", STATE_SOURCE)
         self.assertIn(
@@ -337,10 +367,14 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn("kGameSbss0End = 0x804A0C90u", STATE_SOURCE)
         self.assertIn("kGameSbss1Start = 0x804A0CB0u", STATE_SOURCE)
         self.assertIn("kGameSbss1End = 0x804A1D10u", STATE_SOURCE)
-        self.assertIn("kStateStaticsSize == 0x141B0u", STATE_SOURCE)
-        self.assertIn("kCameraObjectStateOffset == 0x142F8u", STATE_SOURCE)
+        self.assertIn("kStateStaticsSize == 0x15358u", STATE_SOURCE)
+        self.assertIn("kCameraObjectStateOffset == 0x154A0u", STATE_SOURCE)
         self.assertIn("kCameraObjectStateSize == 0x300u", STATE_SOURCE)
-        self.assertIn("kHeapDataOffset == 0x14600u", STATE_SOURCE)
+        self.assertIn("kHeapDataOffset == 0x157A0u", STATE_SOURCE)
+        self.assertIn("roomActorCount > kRoomActorCapacity", STATE_SOURCE)
+        self.assertIn(
+            "readWord(kRoomActorTableStart + i * sizeof(u32))", STATE_SOURCE
+        )
         self.assertIn("captureStaticRanges();", STATE_SOURCE)
         self.assertIn("restoreStaticRanges();", STATE_SOURCE)
         self.assertIn("storeStaticRanges();", STATE_SOURCE)
@@ -469,7 +503,7 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn("Susamune: epoch mask=%08X first=%s", KERNEL_CRASH_SOURCE)
         self.assertIn("LMEpochFieldName(mask)", KERNEL_CRASH_SOURCE)
         self.assertIn(
-            '"LM STATE X0.3.22 F:%s C:%s H:%s X%02lX"', DIAG_SOURCE
+            '"LM STATE X0.3.23 F:%s C:%s H:%s X%02lX"', DIAG_SOURCE
         )
         self.assertIn("LMState::crossRoomGuardCode()", DIAG_SOURCE)
         self.assertIn(
@@ -503,7 +537,7 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn('"VC %08lX>%08lX D%08lX>%08lX"', DIAG_SOURCE)
         self.assertIn("guardedCrossRoomRestoreAllowed", STATE_SOURCE)
         self.assertIn("repairSavedVolumeList", STATE_SOURCE)
-        self.assertIn("kSnapshotVersion = 11u", STATE_SOURCE)
+        self.assertIn("kSnapshotVersion = 12u", STATE_SOURCE)
 
     def test_resource_manager_epoch_census_is_bounded(self) -> None:
         self.assertIn("kResourceMapBase = 0x80398C50u", STATE_SOURCE)
@@ -578,7 +612,7 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
                       STATE_SOURCE)
         self.assertIn("kModelRegistryOutputStateEnd = 0x803E3CF8u",
                       STATE_SOURCE)
-        self.assertIn("kSnapshotVersion = 11u", STATE_SOURCE)
+        self.assertIn("kSnapshotVersion = 12u", STATE_SOURCE)
 
     def test_camera_state_tracks_persistent_views_safely(self) -> None:
         self.assertIn("kCameraObjectPointerTable = 0x80399BE0u", STATE_SOURCE)

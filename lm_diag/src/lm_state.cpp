@@ -108,7 +108,7 @@ constexpr u32 kMem1End = 0x81800000u;
 constexpr u32 kSnapshotBase = SUSAMUNE_MEM2_SNAPSHOT_PPC_BASE;
 constexpr u32 kSnapshotCapacity = SUSAMUNE_MEM2_SNAPSHOT_SIZE;
 constexpr u32 kSnapshotMagic = 0x4C4D5354u;  // 'LMST'
-constexpr u32 kSnapshotVersion = 11u;
+constexpr u32 kSnapshotVersion = 12u;
 constexpr u32 kHeaderSize = 0x100u;
 constexpr u32 kHeapMetadataStart = 0x3Cu;
 constexpr u32 kHeapMetadataEnd = 0x84u;
@@ -141,14 +141,27 @@ constexpr u32 kCameraObjectPointerTable = 0x80399BE0u;
 constexpr u32 kCameraObjectCount = 3u;
 constexpr u32 kCameraObjectSize = 0xECu;
 constexpr u32 kCameraObjectRecordSize = 0x100u;
-constexpr u32 kInGameFlagsBase = 0x803C7CA0u;
-constexpr u32 kInGameFlagsOffset = 0x659u;
-constexpr u32 kInGameFlagsSize = 0x20u;
+// The room event/text interpreter owns heap script pointers and its adjacent
+// request record. Capturing only its flag bitmap leaves a destination-room
+// program counter live after the gameplay heap rewinds.
+constexpr u32 kRoomEventStateStart = 0x803C7CA0u;
+constexpr u32 kRoomEventStateEnd = 0x803C8428u;
+// LM keeps the actor count in captured SBSS, but the matching 128-entry pointer
+// vector is fixed here. Rewind both halves so iteration cannot pair a saved
+// count with destination-room actors.
+constexpr u32 kRoomActorTableStart = 0x803C8490u;
+constexpr u32 kRoomActorTableEnd = 0x803C8690u;
+constexpr u32 kRoomActorCountGlobal = 0x804A12B8u;
+constexpr u32 kRoomActorCapacity = 0x80u;
 // Door and room effects keep a fixed registry of pointers into the transient
 // animated-model pool. Rewind the owners with their heap-resident slots so a
 // future cleanup cannot retire a slot restored from the saved epoch.
 constexpr u32 kAnimatedModelOwnerStateStart = 0x803C26C8u;
 constexpr u32 kAnimatedModelOwnerStateEnd = 0x803C2D94u;
+// Door-side and room-activation masks are fixed scalar state updated alongside
+// the heap door entries. A rewind must not leave their future-room bits set.
+constexpr u32 kRoomVisibilityMaskStateStart = 0x803C2E10u;
+constexpr u32 kRoomVisibilityMaskStateEnd = 0x803C3030u;
 // The grain nodes are game-heap allocations, but both circular-list sentinels
 // live in these adjacent BSS managers and must rewind with their node links.
 constexpr u32 kGrainManagerStateStart = 0x803CBAF0u;
@@ -196,6 +209,11 @@ constexpr u32 kResourceBackingBase = 0x80398ECCu;
 constexpr u32 kResourceMarkBase = 0x80398F08u;
 constexpr u32 kResourceWantedBase = 0x80398F68u;
 constexpr u32 kResourceStateEnd = 0x80398FC8u;
+// These fixed lookup maps, transition records, and bank pointers are consumed
+// together when a door is touched. Their entries point into the gameplay heap,
+// so they must belong to the same epoch as the restored door objects.
+constexpr u32 kDoorVisibilityStateStart = 0x80399510u;
+constexpr u32 kDoorVisibilityStateEnd = 0x80399B30u;
 constexpr u32 kModelOutputStateStart = 0x803C86A0u;
 constexpr u32 kModelOutputStateEnd = 0x803C97C4u;
 constexpr u32 kModelRegistryOutputStateStart = 0x803E3088u;
@@ -217,14 +235,19 @@ constexpr StaticRange kStateStaticRanges[] = {
     {kRendererStateStart, kRendererStateEnd - kRendererStateStart},
     {kCameraDescriptorStateStart,
      kCameraDescriptorStateEnd - kCameraDescriptorStateStart},
+    {kDoorVisibilityStateStart,
+     kDoorVisibilityStateEnd - kDoorVisibilityStateStart},
     {kCameraManagerStateStart,
      kCameraManagerStateEnd - kCameraManagerStateStart},
     {kModelTableBase, kModelTableSize},
     {kModelRegistryBase, kModelRegistrySize},
     {kResourceMapBase, kResourceStateEnd - kResourceMapBase},
-    {kInGameFlagsBase + kInGameFlagsOffset, kInGameFlagsSize},
+    {kRoomEventStateStart, kRoomEventStateEnd - kRoomEventStateStart},
+    {kRoomActorTableStart, kRoomActorTableEnd - kRoomActorTableStart},
     {kAnimatedModelOwnerStateStart,
      kAnimatedModelOwnerStateEnd - kAnimatedModelOwnerStateStart},
+    {kRoomVisibilityMaskStateStart,
+     kRoomVisibilityMaskStateEnd - kRoomVisibilityMaskStateStart},
     {kModelOutputStateStart,
      kModelOutputStateEnd - kModelOutputStateStart},
     {kGrainManagerStateStart,
@@ -252,10 +275,13 @@ constexpr u32 kStateStaticsSize =
     (kTransitionTailStateEnd - kTransitionTailStateStart) +
     (kRendererStateEnd - kRendererStateStart) +
     (kCameraDescriptorStateEnd - kCameraDescriptorStateStart) +
-    (kCameraManagerStateEnd - kCameraManagerStateStart) + kModelTableSize +
+    (kCameraManagerStateEnd - kCameraManagerStateStart) +
+    (kDoorVisibilityStateEnd - kDoorVisibilityStateStart) + kModelTableSize +
     kModelRegistrySize + (kResourceStateEnd - kResourceMapBase) +
-    kInGameFlagsSize +
+    (kRoomEventStateEnd - kRoomEventStateStart) +
+    (kRoomActorTableEnd - kRoomActorTableStart) +
     (kAnimatedModelOwnerStateEnd - kAnimatedModelOwnerStateStart) +
+    (kRoomVisibilityMaskStateEnd - kRoomVisibilityMaskStateStart) +
     (kModelOutputStateEnd - kModelOutputStateStart) +
     (kGrainManagerStateEnd - kGrainManagerStateStart) + kMainLoopStateSize +
     (kParticleManagerStateEnd - kParticleManagerStateStart) +
@@ -510,13 +536,13 @@ static_assert(kSnapshotBase + kSnapshotCapacity ==
               "LM state must end before the config/crash mailboxes");
 static_assert((kHeapDataOffset & 31u) == 0,
               "LM heap payload must be cache-line aligned");
-static_assert(kStateStaticsSize == 0x141B0u,
+static_assert(kStateStaticsSize == 0x15358u,
               "LM static manifest size drifted");
-static_assert(kCameraObjectStateOffset == 0x142F8u,
+static_assert(kCameraObjectStateOffset == 0x154A0u,
               "LM camera-object sidecar offset drifted");
 static_assert(kCameraObjectStateSize == 0x300u,
               "LM camera-object sidecar size drifted");
-static_assert(kHeapDataOffset == 0x14600u,
+static_assert(kHeapDataOffset == 0x157A0u,
               "LM static manifest packing drifted");
 static_assert(kTransitionHeaderStateEnd - kTransitionHeaderStateStart == 0x14u,
               "LM transition header snapshot boundary drifted");
@@ -534,6 +560,10 @@ static_assert(kCameraDescriptorStateEnd - kCameraDescriptorStateStart ==
               "LM camera descriptor snapshot boundary drifted");
 static_assert(kCameraManagerStateEnd - kCameraManagerStateStart == 0x100u,
               "LM camera manager snapshot boundary drifted");
+static_assert(kDoorVisibilityStateEnd - kDoorVisibilityStateStart == 0x620u,
+              "LM door visibility snapshot boundary drifted");
+static_assert(kDoorVisibilityStateEnd + 0x30u == kCameraManagerStateStart,
+              "LM door state must stop before the excluded float table");
 static_assert(kCameraObjectPointerTable >= kCameraManagerStateStart &&
                   kCameraObjectPointerTable +
                           kCameraObjectCount * sizeof(u32) <=
@@ -549,6 +579,10 @@ static_assert(kAnimatedModelOwnerStateEnd -
                       kAnimatedModelOwnerStateStart ==
                   0x6CCu,
               "LM animated-model owner registry boundary drifted");
+static_assert(kRoomVisibilityMaskStateEnd -
+                      kRoomVisibilityMaskStateStart ==
+                  0x220u,
+              "LM room-visibility mask boundary drifted");
 static_assert(kGameSdata0End == kCurrentSceneGlobal &&
                   kGameSdata1Start == kCurrentSceneGlobal + 8u,
               "LM sCurScene must remain an uncaptured epoch gate");
@@ -558,6 +592,15 @@ static_assert(kGameSbss1End < kAudioBasicGlobal,
               "LM game sbss must stop before live audio state");
 static_assert(kResourceStateEnd - kResourceMapBase == 0x378u,
               "LM room-streamer snapshot boundary drifted");
+static_assert(kRoomEventStateEnd - kRoomEventStateStart == 0x788u,
+              "LM room-event snapshot boundary drifted");
+static_assert(kRoomEventStateEnd + 0x68u == kRoomActorTableStart,
+              "LM boot heap helpers must remain outside the room snapshot");
+static_assert(kRoomActorTableEnd - kRoomActorTableStart ==
+                  kRoomActorCapacity * sizeof(u32),
+              "LM room-actor pointer table boundary drifted");
+static_assert(kRoomActorTableEnd + 0x10u == kModelOutputStateStart,
+              "LM actor table must stop before primary model outputs");
 static_assert(kModelOutputStateEnd - kModelOutputStateStart == 0x1124u,
               "LM primary model-output boundary drifted");
 static_assert(kModelRegistryOutputStateEnd -
@@ -571,6 +614,9 @@ static_assert(kMainLoopSceneGlobal == kSceneValueGlobal,
 static_assert(kMainDrawStateGlobal >= kGameSbss0Start &&
                   kMainDrawStateGlobal + sizeof(u32) <= kGameSbss0End,
               "LM draw state must remain inside the captured game sbss");
+static_assert(kRoomActorCountGlobal >= kGameSbss1Start &&
+                  kRoomActorCountGlobal + sizeof(u32) <= kGameSbss1End,
+              "LM room-actor count must remain inside captured game sbss");
 
 struct FreezeState {
     bool interruptsWereEnabled;
@@ -1104,6 +1150,17 @@ bool buildIdentity(LiveIdentity *identity, bool report = false) {
             (root < identity->heapStart || root >= identity->heapEnd ||
              (root & 3u) != 0u)) {
             return gateFailure(Gate::GameRoot, root, report);
+        }
+    }
+    const u32 roomActorCount = readWord(kRoomActorCountGlobal);
+    if (roomActorCount > kRoomActorCapacity) {
+        return gateFailure(Gate::GameRoot, roomActorCount, report);
+    }
+    for (u32 i = 0u; i < roomActorCount; ++i) {
+        const u32 actor = readWord(kRoomActorTableStart + i * sizeof(u32));
+        if (actor < identity->heapStart || actor >= identity->heapEnd ||
+            (actor & 3u) != 0u) {
+            return gateFailure(Gate::GameRoot, actor, report);
         }
     }
     if (!isMem1Range(identity->currentScene, sizeof(u32))) {

@@ -14,7 +14,7 @@ unmodified.
 The overlay rows are:
 
 ```text
-LM STATE X0.3.22 F:<floor> C:<canary> H:<heap check> X<cross-room guard>
+LM STATE X0.3.23 F:<floor> C:<canary> H:<heap check> X<cross-room guard>
 S:<state status> ST<stable frames> SZ<snapshot KiB> G:<gate> <gate value>
 E:<first epoch field> M<mismatch mask> <saved value>><live value>
 V:<topology> S<saved count>>L<live count> -<removed> +<added> F<save>/<live fault>
@@ -226,6 +226,25 @@ bytes, the camera-object sidecar begins at `0x142F8`, and the aligned game-heap
 payload begins at `0x14600`. Snapshot format version 11 prevents an older MEM2
 slot from being mistaken for this layout.
 
+Version `0.3.23` advances the snapshot to format 12 and captures the remaining
+fixed room-transition ownership state that must agree with the rewound gameplay
+heap:
+
+```text
+80399510-80399B30  door lookup maps, transition banks, and heap bank pointers
+803C2E10-803C3030  room and door visibility masks
+803C7CA0-803C8428  complete room event/text interpreter and request
+803C8490-803C8690  128-entry room actor pointer table
+```
+
+The event/text range replaces the old flags-only slice rather than duplicating
+it. The room actor count is already inside captured SBSS, so its 128-entry
+pointer table now rewinds with the same count. Together with the earlier
+ranges, the static payload is `0x15358` bytes, the camera-object sidecar begins
+at `0x154A0`, and the aligned game-heap payload begins at `0x157A0`. Snapshot
+format version 12 prevents an older MEM2 slot from being mistaken for this
+layout.
+
 Same-room loads still require an exact epoch match. The experimental
 cross-room exception requires the epoch mismatch mask to be exactly
 `M00000180`: only mounted-volume count and head may differ; the list tail and
@@ -252,24 +271,25 @@ The invocation containing the load can only emit `97` because tracing was not
 armed at its entry. A final `97` isolates the following scene-table virtual
 call.
 
-For the `0.3.22` hardware pass, first make a new version-11 state, then repeat
-either known failing resource shape:
-save at the foyer bottom and load at the top, or save immediately before a
-foyer door and load after entering it. Detailed tracing covers the first eight
-restored presentations. It then becomes a low-rate two-minute tail; an A-button
-edge just before `MAIN GAME` update opens a 240-presentation watch and enables
-the existing `E0/E1` wrappers for the initiating update. During that watch,
-changes to the map/scene, pending or exiting loop state, DVD/ARAM activity,
-wanted-resource count, or mounted-volume tail/count enable the wrappers for two
-more updates. The armed trace remains active through the complete presentation
-and loop tail. `E2/E3` bracket the fade-controller helper and `F0/F1` bracket
-the only non-trivial following audio callback; the retail `0x80186868` no-op
-remains unwrapped. The existing draw/presenter milestones remain visible. `E4`
-records a ten-bit transition-watch change mask;
-`E5` records the old/new values for its lowest changed bit. A successful save
-during the tail restarts its two-minute deadline and transition baseline. After
-a hard lock or reboot, preserve `/ndebug.log`. `87` is the tail start and its
-300-frame heartbeat; heartbeats pause during the door watch.
+For the `0.3.23` hardware pass, first make a new version-12 state. Confirm one
+same-room restore, then use this exact cross-room sequence: save outside the
+intended foyer door, enter it and wait until Luigi is controllable, load back
+outside, then touch that same door again. Report separately whether the second
+door animation and the following room load complete. Detailed tracing covers
+the first eight restored presentations. It then becomes a low-rate two-minute
+tail; an A-button edge just before `MAIN GAME` update opens a 240-presentation
+watch and enables the existing `E0/E1` wrappers for the initiating update.
+During that watch, changes to the map/scene, pending or exiting loop state,
+DVD/ARAM activity, wanted-resource count, or mounted-volume tail/count enable
+the wrappers for two more updates. The armed trace remains active through the
+complete presentation and loop tail. `E2/E3` bracket the fade-controller helper
+and `F0/F1` bracket the only non-trivial following audio callback; the retail
+`0x80186868` no-op remains unwrapped. The existing draw/presenter milestones
+remain visible. `E4` records a ten-bit transition-watch change mask; `E5`
+records the old/new values for its lowest changed bit. A successful save during
+the tail restarts its two-minute deadline and transition baseline. After a hard
+lock or reboot, preserve `/ndebug.log`. `87` is the tail start and its 300-frame
+heartbeat; heartbeats pause during the door watch.
 
 Build the Homebrew Channel package with:
 
