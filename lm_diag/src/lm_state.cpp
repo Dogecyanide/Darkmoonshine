@@ -1812,9 +1812,9 @@ bool orderedVolumeReplacementMatches() {
 
 bool changedArchiveIsRewindable(const VolumeDescriptor &entry,
                                 const LiveIdentity &identity) {
-    // +0x64 on JKRMemArchive is the caller-selected break/ownership mode, not
-    // a mounted-buffer validity requirement.  The RARC, mount flag, backing
-    // range, and heap ownership below are the useful rewind invariants.
+    // The heap-pointer fields inside JKRMemArchive do not consistently name
+    // the allocator that owns its object/backing buffer.  What matters for the
+    // raw rewind is that both byte ranges are inside the captured game heap.
     const u32 requiredFlags =
         kVolumeArchiveValid | kVolumeRarcValid | kVolumeMounted;
     const u32 objectLocation =
@@ -1823,8 +1823,6 @@ bool changedArchiveIsRewindable(const VolumeDescriptor &entry,
         (entry.ownerFlags >> kVolumeBackingLocationShift) & kVolumeOwnerMask;
     return entry.vtable == kMemArchiveVtable &&
            entry.node == entry.object + 0x18u &&
-           entry.objectOwnerHeap == identity.heap &&
-           entry.archiveHeap == identity.heap &&
            objectLocation == kVolumeOwnerGame &&
            backingLocation == kVolumeOwnerGame &&
            (entry.stateFlags & requiredFlags) == requiredFlags &&
@@ -1906,16 +1904,7 @@ bool modelReplacementMatches() {
         const ModelChange &change = sModelDiff.changes[i];
         if (change.index >= kModelEntryCount ||
             change.sourceMask !=
-                (kModelChangedPrimary | kModelChangedRegistry) ||
-            !changedModelWordsAreKnown(change.index)) {
-            return false;
-        }
-        const u32 savedRegistryHandle =
-            modelRegistryWord(sSavedModelCensus, change.index, 0x04u);
-        const u32 liveRegistryHandle =
-            modelRegistryWord(sLiveModelCensus, change.index, 0x04u);
-        if (savedRegistryHandle != change.savedHandle ||
-            liveRegistryHandle != change.liveHandle) {
+                (kModelChangedPrimary | kModelChangedRegistry)) {
             return false;
         }
 
@@ -1999,8 +1988,6 @@ bool guardedCrossRoomRestoreAllowed(const SnapshotHeader *header,
         sResourceDiff.mapChanged != 0u ||
         sSavedResourceCensus.backingBadMask != 0u ||
         sLiveResourceCensus.backingBadMask != 0u ||
-        sSavedResourceCensus.markMask != 0u ||
-        sLiveResourceCensus.markMask != 0u ||
         sSavedResourceCensus.wantedCount != 0u ||
         sLiveResourceCensus.wantedCount != 0u ||
         sResourceDiff.wantedSequenceChanged != 0u ||

@@ -334,7 +334,7 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn("Susamune: epoch mask=%08X first=%s", KERNEL_CRASH_SOURCE)
         self.assertIn("LMEpochFieldName(mask)", KERNEL_CRASH_SOURCE)
         self.assertIn(
-            '"LM STATE X0.3.16 F:%s C:%s H:%s X%02lX"', DIAG_SOURCE
+            '"LM STATE X0.3.17 F:%s C:%s H:%s X%02lX"', DIAG_SOURCE
         )
         self.assertIn("LMState::crossRoomGuardCode()", DIAG_SOURCE)
         self.assertIn(
@@ -477,8 +477,8 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn("sVolumeDiff.addedIndices[i]", guard)
         self.assertIn("changedArchiveIsRewindable", guard)
         self.assertIn("sResourceDiff.mapChanged != 0u", guard)
-        self.assertIn("sSavedResourceCensus.markMask != 0u", guard)
-        self.assertIn("sLiveResourceCensus.markMask != 0u", guard)
+        self.assertNotIn("sSavedResourceCensus.markMask != 0u", guard)
+        self.assertNotIn("sLiveResourceCensus.markMask != 0u", guard)
         self.assertIn("modelReplacementMatches()", guard)
 
         topology = STATE_SOURCE.split(
