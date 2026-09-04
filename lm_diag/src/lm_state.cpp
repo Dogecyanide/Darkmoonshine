@@ -108,7 +108,7 @@ constexpr u32 kMem1End = 0x81800000u;
 constexpr u32 kSnapshotBase = SUSAMUNE_MEM2_SNAPSHOT_PPC_BASE;
 constexpr u32 kSnapshotCapacity = SUSAMUNE_MEM2_SNAPSHOT_SIZE;
 constexpr u32 kSnapshotMagic = 0x4C4D5354u;  // 'LMST'
-constexpr u32 kSnapshotVersion = 8u;
+constexpr u32 kSnapshotVersion = 9u;
 constexpr u32 kHeaderSize = 0x100u;
 constexpr u32 kHeapMetadataStart = 0x3Cu;
 constexpr u32 kHeapMetadataEnd = 0x84u;
@@ -117,6 +117,15 @@ constexpr u32 kHeapModeOffset = 0x68u;
 constexpr u32 kHeapGroupOffset = 0x69u;
 constexpr u32 kHeapMetadataSize = kHeapMetadataEnd - kHeapMetadataStart;
 constexpr u32 kHeapMetadataOffset = kHeaderSize;
+// LM's fixed fade/wipe controller is advanced by fn_80039338 immediately
+// after MAIN GAME update and reversed by fn_800391F0 in the loop tail.  It is
+// constructed once at boot as a fixed inline J2D object, not rebuilt or
+// re-owned by room streaming, so it must rewind with a door state rather than
+// survive from the future timeline.
+// Stop exactly at the renderer block: the preceding display objects own live
+// VI/XFB pointers and are intentionally excluded.
+constexpr u32 kTransitionStateStart = 0x803985D4u;
+constexpr u32 kTransitionStateEnd = 0x80398770u;
 // LM's camera/viewport object and its four scalar draw-state words live in
 // BSS below the game-static window. Stop before the following live display
 // object, which owns boot-allocated double-buffer pointers.
@@ -186,6 +195,8 @@ struct StaticRange {
 // and audio state. Only the first two words of lbl_80398A40 are scalars;
 // +0x08 begins an OSMessageQueue.
 constexpr StaticRange kStateStaticRanges[] = {
+    {kTransitionStateStart,
+     kTransitionStateEnd - kTransitionStateStart},
     {kRendererStateStart, kRendererStateEnd - kRendererStateStart},
     {kCameraDescriptorStateStart,
      kCameraDescriptorStateEnd - kCameraDescriptorStateStart},
@@ -216,6 +227,7 @@ constexpr u32 kStateStaticRangeCount =
 constexpr u32 kStateStaticsOffset =
     kHeapMetadataOffset + kHeapMetadataSize;
 constexpr u32 kStateStaticsSize =
+    (kTransitionStateEnd - kTransitionStateStart) +
     (kRendererStateEnd - kRendererStateStart) +
     (kCameraDescriptorStateEnd - kCameraDescriptorStateStart) +
     (kCameraManagerStateEnd - kCameraManagerStateStart) + kModelTableSize +
@@ -474,14 +486,18 @@ static_assert(kSnapshotBase + kSnapshotCapacity ==
               "LM state must end before the config/crash mailboxes");
 static_assert((kHeapDataOffset & 31u) == 0,
               "LM heap payload must be cache-line aligned");
-static_assert(kStateStaticsSize == 0x12ED0u,
+static_assert(kStateStaticsSize == 0x1306Cu,
               "LM static manifest size drifted");
-static_assert(kCameraObjectStateOffset == 0x13018u,
+static_assert(kCameraObjectStateOffset == 0x131B4u,
               "LM camera-object sidecar offset drifted");
 static_assert(kCameraObjectStateSize == 0x300u,
               "LM camera-object sidecar size drifted");
-static_assert(kHeapDataOffset == 0x13320u,
+static_assert(kHeapDataOffset == 0x134C0u,
               "LM static manifest packing drifted");
+static_assert(kTransitionStateEnd - kTransitionStateStart == 0x19Cu,
+              "LM transition-controller snapshot boundary drifted");
+static_assert(kTransitionStateEnd == kRendererStateStart,
+              "LM transition controller must abut renderer state");
 static_assert(kRendererStateEnd - kRendererStateStart == 0x270u,
               "LM renderer snapshot boundary drifted");
 static_assert(kCameraDescriptorStateEnd - kCameraDescriptorStateStart ==
@@ -714,9 +730,13 @@ u32 sPostLoadTraceFrame;
 u32 sPostLoadTraceHeartbeat;
 u16 sPostLoadTraceButtons;
 bool sPostLoadTraceBurst;
+bool sPostLoadTracePresentationBurst;
 u32 sPostLoadDoorWindow;
 u32 sPostLoadTraceBurstUpdates;
 PostLoadTransitionWatch sPostLoadTransitionWatch;
+u32 sPostLoadTransitionChangedMask;
+u32 sPostLoadTransitionChangedBefore;
+u32 sPostLoadTransitionChangedAfter;
 u32 sCrossRoomGuard;
 
 void traceSavePhase(u32 phase, u32 detail) {
@@ -732,6 +752,17 @@ void traceLoadPhase(u32 phase, u32 detail) {
 void tracePostLoadPhase(u32 phase, u32 detail = 0u) {
     LMCrash::phase(SUSAMUNE_PHASE_ACTION_POST_LOAD, phase, detail,
                    sStableFrames);
+}
+
+void tracePostLoadTransitionChange() {
+    // E4 identifies every changed watch word; E5 carries the old/new values
+    // for the lowest set bit. This makes a no-exception door hard lock useful
+    // even when it occurs before the following update can begin.
+    LMCrash::phase(SUSAMUNE_PHASE_ACTION_POST_LOAD, 0xE4u,
+                   sPostLoadTransitionChangedMask, sPostLoadTraceFrame);
+    LMCrash::phase(SUSAMUNE_PHASE_ACTION_POST_LOAD, 0xE5u,
+                   sPostLoadTransitionChangedBefore,
+                   sPostLoadTransitionChangedAfter);
 }
 
 bool gateFailure(Gate gate, u32 value, bool report) {
@@ -1059,10 +1090,26 @@ void samplePostLoadTransitionWatch(PostLoadTransitionWatch *watch) {
 bool refreshPostLoadTransitionWatch() {
     PostLoadTransitionWatch live;
     samplePostLoadTransitionWatch(&live);
-    const bool changed =
-        memcmp(&live, &sPostLoadTransitionWatch, sizeof(live)) != 0;
+    const u32 *const before =
+        reinterpret_cast<const u32 *>(&sPostLoadTransitionWatch);
+    const u32 *const after = reinterpret_cast<const u32 *>(&live);
+    u32 changedMask = 0u;
+    u32 firstBefore = 0u;
+    u32 firstAfter = 0u;
+    for (u32 i = 0u; i < sizeof(live) / sizeof(u32); ++i) {
+        if (before[i] != after[i]) {
+            if (changedMask == 0u) {
+                firstBefore = before[i];
+                firstAfter = after[i];
+            }
+            changedMask |= 1u << i;
+        }
+    }
+    sPostLoadTransitionChangedMask = changedMask;
+    sPostLoadTransitionChangedBefore = firstBefore;
+    sPostLoadTransitionChangedAfter = firstAfter;
     copyWords(&sPostLoadTransitionWatch, &live, sizeof(live));
-    return changed;
+    return changedMask != 0u;
 }
 
 u32 cameraObjectRecordAddress(u32 index) {
@@ -2676,6 +2723,7 @@ void saveState() {
         sPostLoadTraceHeartbeat = 0u;
         sPostLoadTraceButtons = readHalf(kPadStatusGlobal);
         sPostLoadTraceBurst = false;
+        sPostLoadTracePresentationBurst = false;
         sPostLoadDoorWindow = 0u;
         sPostLoadTraceBurstUpdates = 0u;
         samplePostLoadTransitionWatch(&sPostLoadTransitionWatch);
@@ -2883,6 +2931,10 @@ void loadState() {
     }
     sStatus = LMState::Status::Loaded;
     sPostLoadTraceFrame = 0u;
+    sPostLoadTraceBurst = false;
+    sPostLoadTracePresentationBurst = false;
+    sPostLoadDoorWindow = 0u;
+    sPostLoadTraceBurstUpdates = 0u;
     sPostLoadTraceState = 1u;
     traceLoadPhase(0x7Fu, header->totalSize);
     LMCrash::note(kEventStateLoad, live.heap, live.heapSize);
@@ -2958,11 +3010,12 @@ void postLoadMilestone(u32 phase) {
         return;
     }
 
-    // Keep the exact wrappers off until a door action or its streaming state
-    // changes; the ARM fsyncs every phase it observes.
-    if (phase >= 0x96u && phase <= 0x9Bu) {
-        tracePostLoadPhase(phase, sPostLoadTraceFrame);
-    } else if (phase == 0x8Du) {
+    // Keep exact wrappers off until a door action or its streaming state
+    // changes; the ARM fsyncs every phase it observes. Once armed, retain a
+    // presentation-wide flag past MAIN GAME update so 8F, draw, presenter,
+    // audio callbacks, and the loop tail cannot disappear into a blind gap.
+    if (phase == 0x8Du) {
+        const bool carriedTrace = sPostLoadTracePresentationBurst;
         const u16 buttons = readHalf(kPadStatusGlobal);
         const bool aEdge = (buttons & kButtonA) != 0u &&
                            (sPostLoadTraceButtons & kButtonA) == 0u;
@@ -2984,26 +3037,37 @@ void postLoadMilestone(u32 phase) {
                 kPostLoadTransitionBurstUpdates;
         }
         sPostLoadTraceBurst = sPostLoadTraceBurstUpdates != 0u;
-        if (sPostLoadTraceBurst) {
+        sPostLoadTracePresentationBurst = sPostLoadTraceBurst;
+        if (carriedTrace || sPostLoadTracePresentationBurst) {
             tracePostLoadPhase(phase, sPostLoadTraceFrame);
+        }
+        if (transitionChanged) {
+            tracePostLoadTransitionChange();
         }
     } else if (phase == 0x8Eu) {
         const bool traced = sPostLoadTraceBurst;
-        if (traced) {
-            tracePostLoadPhase(phase, sPostLoadTraceFrame);
-            if (sPostLoadTraceBurstUpdates != 0u) {
-                --sPostLoadTraceBurstUpdates;
-            }
+        const bool transitionChanged =
+            sPostLoadDoorWindow != 0u &&
+            refreshPostLoadTransitionWatch();
+        if (traced && sPostLoadTraceBurstUpdates != 0u) {
+            --sPostLoadTraceBurstUpdates;
         }
         sPostLoadTraceBurst = false;
-        if (sPostLoadDoorWindow != 0u &&
-            refreshPostLoadTransitionWatch()) {
+        if (transitionChanged) {
             sPostLoadTraceBurstUpdates =
                 kPostLoadTransitionBurstUpdates;
-            if (!traced) {
-                tracePostLoadPhase(phase, sPostLoadTraceFrame);
-            }
         }
+        sPostLoadTracePresentationBurst =
+            sPostLoadTracePresentationBurst || traced || transitionChanged;
+        if (sPostLoadTracePresentationBurst) {
+            tracePostLoadPhase(phase, sPostLoadTraceFrame);
+        }
+        if (transitionChanged) {
+            tracePostLoadTransitionChange();
+        }
+    } else if (sPostLoadTracePresentationBurst ||
+               (phase >= 0x96u && phase <= 0x9Bu)) {
+        tracePostLoadPhase(phase, sPostLoadTraceFrame);
     }
 }
 
@@ -3011,8 +3075,7 @@ void postLoadDetail(u32 phase, u32 arg0, u32 arg1) {
     const bool detailed =
         sPostLoadTraceState == 1u || sPostLoadTraceState == 2u;
     const bool doorBurst = sPostLoadTraceState == 3u &&
-                           sPostLoadTraceBurst &&
-                           (phase == 0xE0u || phase == 0xE1u);
+                           sPostLoadTracePresentationBurst;
     if (detailed || doorBurst) {
         LMCrash::phase(SUSAMUNE_PHASE_ACTION_POST_LOAD, phase, arg0, arg1);
     }
@@ -3025,6 +3088,7 @@ void presenterEnter() {
             sPostLoadTraceHeartbeat = 0u;
             sPostLoadTraceButtons = readHalf(kPadStatusGlobal);
             sPostLoadTraceBurst = false;
+            sPostLoadTracePresentationBurst = false;
             sPostLoadDoorWindow = 0u;
             sPostLoadTraceBurstUpdates = 0u;
             samplePostLoadTransitionWatch(&sPostLoadTransitionWatch);
@@ -3039,11 +3103,15 @@ void presenterEnter() {
             kPostLoadTraceFrameLimit + kPostLoadTraceLingeringFrameLimit) {
             sPostLoadTraceState = 0u;
             sPostLoadTraceBurst = false;
+            sPostLoadTracePresentationBurst = false;
             sPostLoadDoorWindow = 0u;
             sPostLoadTraceBurstUpdates = 0u;
             return;
         }
         ++sPostLoadTraceFrame;
+        if (sPostLoadTracePresentationBurst) {
+            tracePostLoadPhase(0x81u, sPostLoadTraceFrame);
+        }
         if (++sPostLoadTraceHeartbeat >= kPostLoadTraceHeartbeatFrames) {
             sPostLoadTraceHeartbeat = 0u;
             if (sPostLoadDoorWindow == 0u &&
@@ -3058,25 +3126,33 @@ void presenterEnter() {
 }
 
 void presenterAfterSample() {
-    if (sPostLoadTraceState == 2u) {
+    if (sPostLoadTraceState == 2u ||
+        (sPostLoadTraceState == 3u &&
+         sPostLoadTracePresentationBurst)) {
         tracePostLoadPhase(0x82u, sPostLoadTraceFrame);
     }
 }
 
 void presenterAfterDrawDone() {
-    if (sPostLoadTraceState == 2u) {
+    if (sPostLoadTraceState == 2u ||
+        (sPostLoadTraceState == 3u &&
+         sPostLoadTracePresentationBurst)) {
         tracePostLoadPhase(0x83u, sPostLoadTraceFrame);
     }
 }
 
 void presenterAfterRetail() {
-    if (sPostLoadTraceState == 2u) {
+    if (sPostLoadTraceState == 2u ||
+        (sPostLoadTraceState == 3u &&
+         sPostLoadTracePresentationBurst)) {
         tracePostLoadPhase(0x84u, sPostLoadTraceFrame);
     }
 }
 
 void presenterBeforeTick() {
-    if (sPostLoadTraceState == 2u) {
+    if (sPostLoadTraceState == 2u ||
+        (sPostLoadTraceState == 3u &&
+         sPostLoadTracePresentationBurst)) {
         tracePostLoadPhase(0x85u, sPostLoadTraceFrame);
     }
 }
@@ -3090,6 +3166,9 @@ void presenterAfterTick() {
         // Keep the final frame's following loop tail visible. The next
         // presenter entry retires tracing before a ninth frame is recorded.
         sPostLoadTraceState = 1u;
+    } else if (sPostLoadTraceState == 3u &&
+               sPostLoadTracePresentationBurst) {
+        tracePostLoadPhase(0x86u, sPostLoadTraceFrame);
     }
 }
 
