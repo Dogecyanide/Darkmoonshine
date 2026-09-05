@@ -139,7 +139,7 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn("kHeapMetadataStart = 0x3Cu", STATE_SOURCE)
         self.assertIn("kHeapMetadataEnd = 0x84u", STATE_SOURCE)
         self.assertIn("kExpHeapAlignment = 16u", STATE_SOURCE)
-        self.assertIn("kSnapshotVersion = 15u", STATE_SOURCE)
+        self.assertIn("kSnapshotVersion = 16u", STATE_SOURCE)
         self.assertIn("kTransitionHeaderStateStart = 0x803985D4u", STATE_SOURCE)
         self.assertIn("kTransitionHeaderStateEnd = 0x803985E8u", STATE_SOURCE)
         self.assertIn("kTransitionTailStateStart = 0x80398764u", STATE_SOURCE)
@@ -214,6 +214,18 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
             "     kEventActiveStateEnd - kEventActiveStateStart}",
             STATE_SOURCE,
         )
+        self.assertIn("kRoomNameOwnerStateStart = 0x803C4628u", STATE_SOURCE)
+        self.assertIn("kRoomNameOwnerStateEnd = 0x803C4718u", STATE_SOURCE)
+        self.assertIn("kRoomNameWrapperCount = 10u", STATE_SOURCE)
+        self.assertIn("kRoomNamePictureVtable = 0x802F97DCu", STATE_SOURCE)
+        self.assertIn(
+            "{kRoomNameOwnerStateStart,\n"
+            "     kRoomNameOwnerStateEnd - kRoomNameOwnerStateStart}",
+            STATE_SOURCE,
+        )
+        self.assertIn("bool roomNameOwnerValid", STATE_SOURCE)
+        self.assertIn("Gate::RoomName", STATE_SOURCE)
+        self.assertIn('return "RNAME";', STATE_SOURCE)
         self.assertIn("kGrainManagerStateStart = 0x803CBAF0u", STATE_SOURCE)
         self.assertIn("kGrainManagerStateEnd = 0x803CC460u", STATE_SOURCE)
         self.assertIn(
@@ -279,10 +291,10 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn("kGameSbss0End = 0x804A0C90u", STATE_SOURCE)
         self.assertIn("kGameSbss1Start = 0x804A0CB0u", STATE_SOURCE)
         self.assertIn("kGameSbss1End = 0x804A1D10u", STATE_SOURCE)
-        self.assertIn("kStateStaticsSize == 0x160ACu", STATE_SOURCE)
-        self.assertIn("kCameraObjectStateOffset == 0x161F4u", STATE_SOURCE)
+        self.assertIn("kStateStaticsSize == 0x1619Cu", STATE_SOURCE)
+        self.assertIn("kCameraObjectStateOffset == 0x162E4u", STATE_SOURCE)
         self.assertIn("kCameraObjectStateSize == 0x300u", STATE_SOURCE)
-        self.assertIn("kHeapDataOffset == 0x16500u", STATE_SOURCE)
+        self.assertIn("kHeapDataOffset == 0x16600u", STATE_SOURCE)
         self.assertIn("roomActorCount > kRoomActorCapacity", STATE_SOURCE)
         self.assertIn(
             "readWord(kRoomActorTableStart + i * sizeof(u32))", STATE_SOURCE
@@ -453,7 +465,7 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         )
         self.assertIn("LMEpochFieldName(mask)", KERNEL_CRASH_SOURCE)
         self.assertIn(
-            '"LM STATE X0.3.27 F:%s C:%s H:%s X%02lX"', DIAG_SOURCE
+            '"LM STATE X0.3.28 F:%s C:%s H:%s X%02lX"', DIAG_SOURCE
         )
         self.assertIn("LMState::crossRoomGuardCode()", DIAG_SOURCE)
         self.assertIn(
@@ -495,7 +507,7 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn('"VC %08lX>%08lX D%08lX>%08lX"', DIAG_SOURCE)
         self.assertIn("guardedCrossRoomRestoreAllowed", STATE_SOURCE)
         self.assertIn("repairSavedVolumeList", STATE_SOURCE)
-        self.assertIn("kSnapshotVersion = 15u", STATE_SOURCE)
+        self.assertIn("kSnapshotVersion = 16u", STATE_SOURCE)
         display = STATE_SOURCE.split(
             "const VolumeDescriptor *volumeChangeEntry", 1
         )[1].split("u32 volumeChangeObject", 1)[0]
@@ -611,7 +623,7 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
                       STATE_SOURCE)
         self.assertIn("kModelRegistryOutputStateEnd = 0x803E3CF8u",
                       STATE_SOURCE)
-        self.assertIn("kSnapshotVersion = 15u", STATE_SOURCE)
+        self.assertIn("kSnapshotVersion = 16u", STATE_SOURCE)
 
     def test_camera_state_tracks_persistent_views_safely(self) -> None:
         self.assertIn("kCameraObjectPointerTable = 0x80399BE0u", STATE_SOURCE)

@@ -62,6 +62,16 @@ def journal_bytes(
 
 
 class LuigiMansionDumpJournalContracts(unittest.TestCase):
+    def test_lm_crash_reports_use_game_specific_names(self) -> None:
+        self.assertIn('"%s/luigis_mansion_crash_a.bin"', SOURCE)
+        self.assertIn('"%s/luigis_mansion_crash_b.bin"', SOURCE)
+        self.assertIn('"%s/luigis_mansion_crash_a.txt"', SOURCE)
+        self.assertIn('"%s/luigis_mansion_crash_b.txt"', SOURCE)
+        self.assertIn(
+            '"Moonshine Luigi\'s Mansion crash report v%u\\r\\n"', SOURCE
+        )
+        self.assertIn("if (GAME_ID == SUSAMUNE_MOD_GAME_ID_LMJ)", SOURCE)
+
     def test_journal_is_glmj_only_and_uses_two_rotating_files(self) -> None:
         self.assertIn('"%s/lm_dumps"', SOURCE)
         self.assertIn('"%s/lm_attempt_a.bin"', SOURCE)

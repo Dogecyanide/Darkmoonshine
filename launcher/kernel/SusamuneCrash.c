@@ -403,14 +403,28 @@ void SusamuneCrashInit(void)
 	AttemptedSeq = 0;
 	LastPhaseSequence = 0;
 	LastPoll = read32(HW_TIMER);
-	_sprintf(BinPaths[0], "%s/susamune_crash_a.bin",
-		SusamuneCfgStoragePrefix());
-	_sprintf(BinPaths[1], "%s/susamune_crash_b.bin",
-		SusamuneCfgStoragePrefix());
-	_sprintf(TextPaths[0], "%s/susamune_crash_a.txt",
-		SusamuneCfgStoragePrefix());
-	_sprintf(TextPaths[1], "%s/susamune_crash_b.txt",
-		SusamuneCfgStoragePrefix());
+	if (GAME_ID == SUSAMUNE_MOD_GAME_ID_LMJ)
+	{
+		_sprintf(BinPaths[0], "%s/luigis_mansion_crash_a.bin",
+			SusamuneCfgStoragePrefix());
+		_sprintf(BinPaths[1], "%s/luigis_mansion_crash_b.bin",
+			SusamuneCfgStoragePrefix());
+		_sprintf(TextPaths[0], "%s/luigis_mansion_crash_a.txt",
+			SusamuneCfgStoragePrefix());
+		_sprintf(TextPaths[1], "%s/luigis_mansion_crash_b.txt",
+			SusamuneCfgStoragePrefix());
+	}
+	else
+	{
+		_sprintf(BinPaths[0], "%s/susamune_crash_a.bin",
+			SusamuneCfgStoragePrefix());
+		_sprintf(BinPaths[1], "%s/susamune_crash_b.bin",
+			SusamuneCfgStoragePrefix());
+		_sprintf(TextPaths[0], "%s/susamune_crash_a.txt",
+			SusamuneCfgStoragePrefix());
+		_sprintf(TextPaths[1], "%s/susamune_crash_b.txt",
+			SusamuneCfgStoragePrefix());
+	}
 
 	if (CrashEnabled)
 	{
@@ -524,8 +538,13 @@ static int WriteText(u32 target)
 	if (TextStatus != FR_OK)
 		return TextStatus;
 
-	Emit(Line, _sprintf(Line, "Moonshine crash report v%u\r\n",
-		Snapshot.version));
+	if (Snapshot.gameId == SUSAMUNE_MOD_GAME_ID_LMJ)
+		Emit(Line, _sprintf(Line,
+			"Moonshine Luigi's Mansion crash report v%u\r\n",
+			Snapshot.version));
+	else
+		Emit(Line, _sprintf(Line, "Moonshine crash report v%u\r\n",
+			Snapshot.version));
 	Emit(Line, _sprintf(Line,
 		"generation=%u region=%s game_id=%08X mod_crc32=%08X\r\n",
 		Snapshot.captureSeq, RegionName(Snapshot.gameId), Snapshot.gameId,

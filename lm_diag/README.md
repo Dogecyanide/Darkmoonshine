@@ -14,7 +14,7 @@ unmodified.
 The overlay rows are:
 
 ```text
-LM STATE X0.3.27 F:<floor> C:<canary> H:<heap check> X<cross-room guard>
+LM STATE X0.3.28 F:<floor> C:<canary> H:<heap check> X<cross-room guard>
 S:<state status> ST<stable frames> SZ<snapshot KiB> G:<gate> <gate value>
 ```
 
@@ -74,6 +74,11 @@ followed by the exact 32-byte phase records observed after that save; no heap or
 MEM2 snapshot bytes are duplicated. Every accepted record is synced while no
 asynchronous DI read is active. A half-created generation is ignored unless its
 header and first save-complete record agree, leaving the other bank recoverable.
+
+GLMJ crash captures use `/luigis_mansion_crash_a.bin` and
+`/luigis_mansion_crash_b.bin`, with matching `.txt` reports whose heading also
+names Luigi's Mansion. The inherited Sunshine path keeps its existing generic
+filenames, so testers can retain reports from both games without ambiguity.
 
 Version `0.3.9` additionally captures GLMJ01's standalone `0x270`-byte
 camera/viewport state block at `0x80398770-0x803989E0`. The normal-room draw
@@ -383,10 +388,21 @@ to two rows; the full census panel appears only on `EPOCH`. Obsolete free-space
 polling and minimum tracking are removed while periodic `JKRExpHeap::check`
 calls remain, reducing the injected payload from 46,104 to 45,272 bytes.
 
-For the current `0.3.27` pass, create a new version-15 state and test both
-observed multi-room paths: a load from two rooms away, and the bottom-foyer
-room to the room connected upstairs. If either refuses, photograph the expanded
-panel; the attempt journal will now retain the same `X` stage. After any
+Version `0.3.28` advances the snapshot to format 16 and captures the complete
+room-name presenter owner at `803C4628-803C4718`: ten adjacent 0x18-byte
+wrappers whose picture objects are allocated from the live heap. The terminal
+`0.3.27` report proves the three-room load completed, every heap remained
+healthy, and gameplay ran for about 4.88 seconds before the destination-era
+owner tried to delete a picture at a saved-era heap address. The static payload
+is now `0x1619C` bytes, the camera-object sidecar begins at `0x162E4`, and the
+aligned gameplay heap begins at `0x16600`. A gate accepts each wrapper only when
+its picture is null or has the retail `0x802F97DC` vtable and its unused second
+owner remains null.
+
+For the current `0.3.28` pass, create a new version-16 state, repeat the
+three-room restore that succeeded on `0.3.27`, and then touch the next door.
+Also smoke-test a same-room and a one/two-room restore. If a load refuses,
+photograph the expanded panel. After any
 exception, hard lock, or reboot, do not make another successful save before
 collecting the SD card. Copy all of these when present:
 
@@ -394,8 +410,8 @@ collecting the SD card. Copy all of these when present:
 /ndebug.log
 /lm_dumps/lm_attempt_a.bin
 /lm_dumps/lm_attempt_b.bin
-/susamune_crash_a.txt
-/susamune_crash_b.txt
+/luigis_mansion_crash_a.txt
+/luigis_mansion_crash_b.txt
 ```
 
 The attempt banks retain the newest two successful-save generations; a later

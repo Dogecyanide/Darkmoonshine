@@ -6,7 +6,7 @@ Mansion (`GLMJ01`).
 
 ## Current status
 
-`Full-State Experimental 0.3.27` is the current hardware-testable state build.
+`Full-State Experimental 0.3.28` is the current hardware-testable state build.
 
 - The custom Nintendont launcher accepts only the verified Japanese `GLMJ01`
   revision-0 executable for injection.
@@ -22,7 +22,8 @@ Mansion (`GLMJ01`).
   heap pointers, room/door visibility masks, the complete room event/text
   interpreter and request, the room actor-pointer table, the fixed
   room-streamer and model-resource tables, the active-event bitmap, the
-  fixed scene-effect manager and controller/list state,
+  room-name presenter's fixed owner array, the fixed scene-effect manager and
+  controller/list state,
   mounted-volume list header, and libc RNG state. The fade controller's
   embedded `J2DPicture` remains live;
   the three persistent camera-view objects receive a guarded sidecar only if
@@ -34,9 +35,9 @@ Mansion (`GLMJ01`).
 - Each transaction drains LM's prior JAudio scene handles while preserving its
   required replacement bootstrap handle, then holds the OS scheduler while
   only lock-free snapshot work runs.
-- Moonshine's ARM crash writer now accepts LM exception reports and rotates
-  `susamune_crash_a/b.bin` plus readable `.txt` reports on the launcher's
-  storage device.
+- Moonshine's ARM crash writer accepts LM exception reports and rotates
+  `luigis_mansion_crash_a/b.bin` plus readable, LM-labelled `.txt` reports on
+  the launcher's storage device. Sunshine retains its existing filenames.
 - A cache-coherent phase journal records the last completed save/load step in
   `/ndebug.log`, even when the PowerPC hard-locks and no exception is raised.
 - GLMJ builds also create `/lm_dumps` and rotate two compact binary attempt
@@ -103,12 +104,18 @@ Mansion (`GLMJ01`).
   display path while retaining periodic heap integrity checks. The payload is
   45,272 bytes, 832 bytes smaller than `0.3.26`; the expanded rejection panel
   remains available automatically when needed.
+- Snapshot format 16, introduced by `0.3.28`, rewinds the complete ten-wrapper
+  room-name owner array at `0x803C4628-0x803C4718`. The `0.3.27` crash report
+  proved a three-room restore completed and ran for about 4.88 seconds before
+  that live owner tried to delete a picture from the rewound gameplay heap.
+  Each live wrapper is also checked for the retail picture vtable before a
+  state can be taken.
 
 Controls are D-pad Left to save and D-pad Right to load. The normal overlay is
 now only two lines; the full archive/resource/model panel opens automatically
 after an `EPOCH` refusal. Confirm a same-room restore first. For the focused
 multi-room test, save in one stable room, walk one or two rooms away and wait
-until Luigi is controllable, then load. `0.3.27` may attempt the two transition
+until Luigi is controllable, then load. `0.3.28` may attempt the two transition
 shapes that `0.3.26` rejected artificially, but it still must pass every
 ownership, ordering, resource, and model-state predicate. A successful load is
 evidence for that resource shape, not yet general cross-room support. This
@@ -150,7 +157,7 @@ The build emits a version-labelled tester package plus a stable compatibility
 name:
 
 ```text
-build-lm-diag/Moonshine-Luigis-Mansion-Full-State-Experimental-0.3.27.zip
+build-lm-diag/Moonshine-Luigis-Mansion-Full-State-Experimental-0.3.28.zip
 build-lm-diag/moonshine_luigis_mansion_launcher.zip
 ```
 
@@ -174,7 +181,7 @@ disc or ISO.
 
 Back up any real memory-card data, install the four packaged files under
 `apps/moonshine_luigis_mansion/`, and launch a clean revision-0 GLMJ01 image.
-The overlay must start with `LM STATE X0.3.27`; wait until `F`, `C`, `H`, and
+The overlay must start with `LM STATE X0.3.28`; wait until `F`, `C`, `H`, and
 `G` are `OK` and `ST` is at least 3. The trailing `X` byte reports the guarded
 cross-room path: `X00` means it has not been attempted, `XA0` means it passed,
 and `X01` through `X08` identify the refusal stage: epoch mask, saved-census
@@ -182,7 +189,9 @@ generation, volume census, list topology, archive ownership, room streamer,
 model census, or model replacement shape. If `ST` remains zero, photograph the
 short gate name and eight-digit value shown after `G:`; they identify the
 rejected live condition without weakening it. `G:PTCL` specifically means the
-JPA pool ownership or fixed-sentinel audit failed, so do not attempt a state.
+JPA pool ownership or fixed-sentinel audit failed. `G:RNAME` means one of the
+ten room-name picture owners failed its vtable/shape audit. Do not attempt a
+state in either case.
 
 Press D-pad Left once. `S:SAVED` and a nonzero `SZ` confirm a committed slot.
 Change a visible state in the same room, then press D-pad Right once. A good
@@ -230,12 +239,13 @@ rewind. `S:LOADED` means the guarded raw rewind completed. `EPOCH` means the
 observed transition fell outside this
 experiment's accepted shape; photograph the full diagnostic panel rather than
 retrying through a different transition. If the game crashes, save the
-newest `susamune_crash_a.txt` or `susamune_crash_b.txt` from the launcher's
-storage device before the next experiment overwrites the older rotating report.
+newest `luigis_mansion_crash_a.txt` or `luigis_mansion_crash_b.txt` from the
+launcher's storage device before the next experiment overwrites the older
+rotating report.
 Whether it raises an exception, hard-locks, or reboots, return the SD card
 before making another successful state and preserve `/ndebug.log`, both
 `/lm_dumps/lm_attempt_a.bin` and `/lm_dumps/lm_attempt_b.bin`, and any fresh
-`susamune_crash_a/b.txt` report. The two attempt files retain the latest two
+`luigis_mansion_crash_a/b.txt` report. The two attempt files retain the latest two
 successful-save generations, so another save may overwrite the older test.
 Decode either file or the whole directory without modifying it:
 

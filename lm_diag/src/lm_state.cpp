@@ -131,7 +131,7 @@ constexpr u32 kMem1End = 0x81800000u;
 constexpr u32 kSnapshotBase = SUSAMUNE_MEM2_SNAPSHOT_PPC_BASE;
 constexpr u32 kSnapshotStorageSize = SUSAMUNE_MEM2_SNAPSHOT_SIZE;
 constexpr u32 kSnapshotMagic = 0x4C4D5354u;  // 'LMST'
-constexpr u32 kSnapshotVersion = 15u;
+constexpr u32 kSnapshotVersion = 16u;
 constexpr u32 kHeaderSize = 0x100u;
 constexpr u32 kHeapMetadataStart = 0x3Cu;
 constexpr u32 kHeapMetadataEnd = 0x84u;
@@ -190,6 +190,16 @@ constexpr u32 kRoomVisibilityMaskStateEnd = 0x803C3030u;
 // in the destination epoch re-arms foyer cutscenes before Luigi reaches a door.
 constexpr u32 kEventActiveStateStart = 0x803C20C8u;
 constexpr u32 kEventActiveStateEnd = 0x803C2138u;
+// The room-name presenter keeps ten owned J2DPicture pointers in this fixed
+// wrapper array while the pictures themselves live in the gameplay heap. The
+// retail constructor/destructor treats both adjacent map symbols as one unit.
+constexpr u32 kRoomNameOwnerStateStart = 0x803C4628u;
+constexpr u32 kRoomNameOwnerStateEnd = 0x803C4718u;
+constexpr u32 kRoomNameWrapperSize = 0x18u;
+constexpr u32 kRoomNameWrapperCount = 10u;
+constexpr u32 kRoomNamePictureOffset = 0x10u;
+constexpr u32 kRoomNameSpareOffset = 0x14u;
+constexpr u32 kRoomNamePictureVtable = 0x802F97DCu;
 // The grain nodes are game-heap allocations, but both circular-list sentinels
 // live in these adjacent BSS managers and must rewind with their node links.
 constexpr u32 kGrainManagerStateStart = 0x803CBAF0u;
@@ -302,6 +312,8 @@ constexpr StaticRange kStateStaticRanges[] = {
      kRoomVisibilityMaskStateEnd - kRoomVisibilityMaskStateStart},
     {kEventActiveStateStart,
      kEventActiveStateEnd - kEventActiveStateStart},
+    {kRoomNameOwnerStateStart,
+     kRoomNameOwnerStateEnd - kRoomNameOwnerStateStart},
     {kModelOutputStateStart,
      kModelOutputStateEnd - kModelOutputStateStart},
     {kGrainManagerStateStart,
@@ -351,6 +363,7 @@ constexpr u32 kStateStaticsSize =
     (kAnimatedModelOwnerStateEnd - kAnimatedModelOwnerStateStart) +
     (kRoomVisibilityMaskStateEnd - kRoomVisibilityMaskStateStart) +
     (kEventActiveStateEnd - kEventActiveStateStart) +
+    (kRoomNameOwnerStateEnd - kRoomNameOwnerStateStart) +
     (kModelOutputStateEnd - kModelOutputStateStart) +
     (kGrainManagerStateEnd - kGrainManagerStateStart) + kMainLoopStateSize +
     (kSceneEffectManagerStateEnd - kSceneEffectManagerStateStart) +
@@ -641,13 +654,13 @@ static_assert(kDvdSecondaryRequestQueue + 0x20u ==
               "LM secondary DVD worker layout drifted");
 static_assert((kHeapDataOffset & 31u) == 0,
               "LM heap payload must be cache-line aligned");
-static_assert(kStateStaticsSize == 0x160ACu,
+static_assert(kStateStaticsSize == 0x1619Cu,
               "LM static manifest size drifted");
-static_assert(kCameraObjectStateOffset == 0x161F4u,
+static_assert(kCameraObjectStateOffset == 0x162E4u,
               "LM camera-object sidecar offset drifted");
 static_assert(kCameraObjectStateSize == 0x300u,
               "LM camera-object sidecar size drifted");
-static_assert(kHeapDataOffset == 0x16500u,
+static_assert(kHeapDataOffset == 0x16600u,
               "LM static manifest packing drifted");
 static_assert(kModelTableSnapshotOffset == 0xB50u &&
                   kModelRegistrySnapshotOffset == 0x4088u &&
@@ -707,6 +720,15 @@ static_assert(kRoomVisibilityMaskStateEnd -
               "LM room-visibility mask boundary drifted");
 static_assert(kEventActiveStateEnd - kEventActiveStateStart == 0x70u,
               "LM active-event bitmap boundary drifted");
+static_assert(kRoomNameOwnerStateEnd - kRoomNameOwnerStateStart == 0xF0u,
+              "LM room-name owner boundary drifted");
+static_assert(kRoomNameWrapperCount * kRoomNameWrapperSize ==
+                  kRoomNameOwnerStateEnd - kRoomNameOwnerStateStart &&
+                  kRoomNamePictureOffset + sizeof(u32) ==
+                      kRoomNameSpareOffset &&
+                  kRoomNameSpareOffset + sizeof(u32) ==
+                      kRoomNameWrapperSize,
+              "LM room-name wrapper layout drifted");
 static_assert(kGameSdata0End == kCurrentSceneGlobal &&
                   kGameSdata1Start == kCurrentSceneGlobal + 8u,
               "LM sCurScene must remain an uncaptured epoch gate");
@@ -765,6 +787,7 @@ enum class Gate : u32 {
     ModeCount,
     GameRoot,
     Particle,
+    RoomName,
     Scene,
     LoopMode,
     LoopExit,
@@ -1081,6 +1104,25 @@ bool rangeInside(u32 childStart, u32 childEnd, u32 parentStart,
            childEnd <= parentEnd;
 }
 
+bool roomNameOwnerValid(u32 *fault) {
+    for (u32 i = 0u; i < kRoomNameWrapperCount; ++i) {
+        const u32 wrapper =
+            kRoomNameOwnerStateStart + i * kRoomNameWrapperSize;
+        const u32 picture = readWord(wrapper + kRoomNamePictureOffset);
+        if (readWord(wrapper + kRoomNameSpareOffset) != 0u) {
+            *fault = wrapper + kRoomNameSpareOffset;
+            return false;
+        }
+        if (picture != 0u &&
+            (!isMem1Range(picture, sizeof(u32)) ||
+             readWord(picture) != kRoomNamePictureVtable)) {
+            *fault = picture;
+            return false;
+        }
+    }
+    return true;
+}
+
 bool particleManagerValid(const LiveIdentity &identity, u32 *fault) {
     const u32 base = kParticleManagerStateStart;
     const u32 emitterPool = readWord(base);
@@ -1294,6 +1336,10 @@ bool buildIdentity(LiveIdentity *identity, bool report = false) {
     u32 particleFault = 0u;
     if (!particleManagerValid(*identity, &particleFault)) {
         return gateFailure(Gate::Particle, particleFault, report);
+    }
+    u32 roomNameFault = 0u;
+    if (!roomNameOwnerValid(&roomNameFault)) {
+        return gateFailure(Gate::RoomName, roomNameFault, report);
     }
     if (identity->systemHeapEnd > identity->heapStart &&
         identity->heapEnd > identity->systemHeapStart) {
@@ -3793,6 +3839,8 @@ const char *gateText() {
         return "GROOT";
     case Gate::Particle:
         return "PTCL";
+    case Gate::RoomName:
+        return "RNAME";
     case Gate::Scene:
         return "SCENE";
     case Gate::LoopMode:
