@@ -164,6 +164,15 @@ patches = [
         "type": PatchType.BL,
         "expected": 0x4BFFA92D,
     },
+    # Intercept the sole PADRead inside JUTGamePad::read. The wrapper preserves
+    # its return value while giving the retail button/stick derivation a neutral
+    # port-1 sample whenever the payload-native practice menu owns input.
+    {
+        "lmj": 0x801D20B4,
+        "sym": "diagnosticPadRead",
+        "type": PatchType.BL,
+        "expected": 0x48012849,
+    },
 ]
 
 # Extra clean-DOL signatures that are authenticated but left untouched.  These
@@ -178,7 +187,11 @@ checks = [
     {"addr": 0x8000B354, "expected": 0x8183001C},
     {"addr": 0x8000B358, "expected": 0x7D8803A6},
     {"addr": 0x801D20B0, "expected": 0x387D0018},
-    {"addr": 0x801D20B4, "expected": 0x48012849},
+    # PADRead entry called by the practice-menu wrapper.
+    {"addr": 0x801E48FC, "expected": 0x7C0802A6},
+    {"addr": 0x801E4900, "expected": 0x3C808049},
+    {"addr": 0x801E4904, "expected": 0x90010004},
+    {"addr": 0x801E4908, "expected": 0x38045910},
     {"addr": 0x801D4124, "expected": 0x800D1594},
     {"addr": 0x801D4128, "expected": 0x906D1594},
     {"addr": 0x801D412C, "expected": 0x7C030378},

@@ -18,7 +18,11 @@ enum class Status : u32 {
 
 // Polls port 1, updates the stability gate, and services one edge-triggered
 // snapshot request. Call only after LM's complete retail presenter returns.
-void tick();
+void tick(bool allowRequests = true);
+
+// True only after the complete heap/stream/card identity has remained stable
+// long enough for a one-shot practice action.
+bool readyForAction();
 
 // These keep an eight-frame detailed trace after a successful load, then a
 // low-rate tail with a bounded door/streaming watch. Transition edges re-arm

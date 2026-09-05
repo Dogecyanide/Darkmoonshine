@@ -160,6 +160,72 @@ class LuigiMansionDumpJournalContracts(unittest.TestCase):
         self.assertIn("epoch_guard=X00 epoch_mask=00000100", text)
         self.assertIn("epoch_guard=X08 epoch_mask=00000180", text)
 
+    def test_parser_decodes_durable_rejection_telemetry(self) -> None:
+        summary_arg0 = (6 << 24) | (3 << 16) | (24 << 8) | 33
+        summary_arg1 = (9 << 24) | (18 << 16) | 27
+        records = (
+            phase_record(2),
+            phase_record(
+                4,
+                action=2,
+                phase=lm_dump.REJECT_SUMMARY_PHASE,
+                arg0=summary_arg0,
+                arg1=summary_arg1,
+            ),
+            phase_record(
+                6,
+                action=2,
+                phase=lm_dump.REJECT_SAVED_IDENTITY_PHASE,
+                arg0=0x180,
+                arg1=0x19,
+            ),
+            phase_record(
+                8,
+                action=2,
+                phase=lm_dump.REJECT_LIVE_IDENTITY_PHASE,
+                arg0=0x181,
+                arg1=0x26,
+            ),
+        )
+        journal = lm_dump.parse_journal_bytes(journal_bytes(records=records))
+        output = io.StringIO()
+        with redirect_stdout(output):
+            lm_dump.print_journal(journal, latest=True)
+        text = output.getvalue()
+        self.assertIn(
+            "reject_summary=status=epoch guard=X03 volumes=24>33 "
+            "changes=-9+18 models=27",
+            text,
+        )
+        self.assertIn(
+            "reject_identity=saved map=00000180 scene=00000019", text
+        )
+        self.assertIn(
+            "reject_identity=live map=00000181 scene=00000026", text
+        )
+
+    def test_parser_marks_unavailable_rejection_counts(self) -> None:
+        summary_arg0 = (6 << 24) | (2 << 16) | (0xFF << 8) | 0xFF
+        summary_arg1 = (0xFF << 24) | (0xFF << 16) | 0xFFFF
+        records = (
+            phase_record(2),
+            phase_record(
+                4,
+                action=2,
+                phase=lm_dump.REJECT_SUMMARY_PHASE,
+                arg0=summary_arg0,
+                arg1=summary_arg1,
+            ),
+        )
+        journal = lm_dump.parse_journal_bytes(journal_bytes(records=records))
+        output = io.StringIO()
+        with redirect_stdout(output):
+            lm_dump.print_journal(journal, latest=True)
+        self.assertIn(
+            "guard=X02 volumes=?>? changes=-?+? models=?",
+            output.getvalue(),
+        )
+
     def test_guard_field_does_not_overlap_epoch_bits_or_flags(self) -> None:
         self.assertEqual(
             lm_dump.EPOCH_GUARD_MASK & lm_dump.EPOCH_MASK,

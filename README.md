@@ -6,7 +6,7 @@ Mansion (`GLMJ01`).
 
 ## Current status
 
-`Full-State Experimental 0.3.28` is the current hardware-testable state build.
+`Full-State Experimental 0.3.29` is the current hardware-testable state build.
 
 - The custom Nintendont launcher accepts only the verified Japanese `GLMJ01`
   revision-0 executable for injection.
@@ -57,8 +57,9 @@ Mansion (`GLMJ01`).
   build now that their target manager is captured.
 - Cross-room checks retain a complete 22-field epoch mask plus the saved and
   live values of the highest-priority mismatch on both the overlay and in
-  `/ndebug.log`. Rejection journals now also preserve the exact `X01-X08`
-  guard stage instead of relying on a photographed HUD.
+  `/ndebug.log`. Rejection journals preserve the exact `X01-X08` guard stage,
+  saved/live map and scene values, volume counts, removed/added counts, and
+  changed-model count instead of relying on a photographed HUD.
 - The first cross-room path is deliberately narrow. It accepts any nonzero
   subset of volume count/head drift (`M00000080`, `M00000100`, or
   `M00000180`) with an unchanged tail and all other epoch fields unchanged,
@@ -110,13 +111,32 @@ Mansion (`GLMJ01`).
   that live owner tried to delete a picture from the rewound gameplay heap.
   Each live wrapper is also checked for the retail picture vtable before a
   state can be taken.
+- `0.3.29` removes the remaining diagnostic bookkeeping ceiling from the
+  guarded cross-room path. It validates up to 64 mounted volumes and retains
+  every possible 63-removed/63-added archive delta plus all 126 matching model
+  changes; the existing ordering, ownership, idle-I/O, room-streamer, and model
+  proofs still fail closed. All large census/diff workspaces now occupy a
+  protected `0xC4C0`-byte tail of the existing MEM2 snapshot reservation,
+  outside the saved bytes, instead of consuming injected MEM1.
+- `0.3.29` also adds a payload-native, clean-ISO practice menu. It provides
+  normal/Hidden Mansion mode, Boo spawning and requirement presets, blackout,
+  HP 1/100, three door/trap switches, the exact GaddWarp unlock-all whitelist,
+  Boneyard plant presets, stock BGM selection/stop, an explicit memory-card
+  save, and strict current-room clear recipes for 59 of map 2's 72 room IDs.
+  No room warp, patched event asset, or fake one-call room reset is hidden in
+  this first menu build. The linked payload is 48,692 bytes: 14.9% of the
+  320 KiB working cap and about 9.3% of the 512 KiB payload window.
 
-Controls are D-pad Left to save and D-pad Right to load. The normal overlay is
-now only two lines; the full archive/resource/model panel opens automatically
-after an `EPOCH` refusal. Confirm a same-room restore first. For the focused
-multi-room test, save in one stable room, walk one or two rooms away and wait
-until Luigi is controllable, then load. `0.3.28` may attempt the two transition
-shapes that `0.3.26` rejected artificially, but it still must pass every
+Controls are D-pad Left to save, D-pad Right to load, and D-pad Down to open
+the practice menu once LM is in a stable mansion room. In the menu, use L/R
+for pages, D-pad Up/Down for rows, D-pad Left/Right to choose or set a value,
+A to apply, and B to close. Destructive actions require a second A press.
+The normal overlay is only two lines. After an `EPOCH` refusal, hold Z to reveal the full
+archive/resource/model panel; the SD journal records the important refusal
+details without Z. Confirm a same-room restore first, then test progressively
+longer routes using a fresh save for each route and wait until Luigi is fully
+controllable before loading. `0.3.29` no longer refuses solely because more
+than eight archives or sixteen models changed, but it still must pass every
 ownership, ordering, resource, and model-state predicate. A successful load is
 evidence for that resource shape, not yet general cross-room support. This
 remains a crash-risk feasibility test. Audio may remain silent after a save or
@@ -157,7 +177,7 @@ The build emits a version-labelled tester package plus a stable compatibility
 name:
 
 ```text
-build-lm-diag/Moonshine-Luigis-Mansion-Full-State-Experimental-0.3.28.zip
+build-lm-diag/Moonshine-Luigis-Mansion-Full-State-Experimental-0.3.29.zip
 build-lm-diag/moonshine_luigis_mansion_launcher.zip
 ```
 
@@ -181,7 +201,7 @@ disc or ISO.
 
 Back up any real memory-card data, install the four packaged files under
 `apps/moonshine_luigis_mansion/`, and launch a clean revision-0 GLMJ01 image.
-The overlay must start with `LM STATE X0.3.28`; wait until `F`, `C`, `H`, and
+The overlay must start with `LM STATE X0.3.29`; wait until `F`, `C`, `H`, and
 `G` are `OK` and `ST` is at least 3. The trailing `X` byte reports the guarded
 cross-room path: `X00` means it has not been attempted, `XA0` means it passed,
 and `X01` through `X08` identify the refusal stage: epoch mask, saved-census
@@ -197,20 +217,27 @@ Press D-pad Left once. `S:SAVED` and a nonzero `SZ` confirm a committed slot.
 Change a visible state in the same room, then press D-pad Right once. A good
 first restore says `S:LOADED`. `BUSY`, `BADCRC`, `BADHEAP`, `EPOCH`, or
 `TOOBIG` is a deliberate refusal and should be photographed with the rest of
-the overlay. For a preflight mismatch that reports `EPOCH`, the `E:` row
-identifies the first differing field, the `M` value records every differing
-preflight field, and the final pair is `saved>live`. A later generic refusal
-can still show `E:NONE M00000000`.
+the overlay. For a preflight mismatch that reports `EPOCH`, hold Z to open the
+detailed panel. The `E:` row identifies the first differing field, the `M`
+value records every differing preflight field, and the final pair is
+`saved>live`. A later generic refusal can still show `E:NONE M00000000`.
 
-After an `EPOCH` refusal, `V:` shows saved/live member counts, total removals and
-additions, and whether the live order is an exact saved-list suffix (`HEAD1`,
-`HEAD2`, or `HEADN`). Six reserved rows show up to three removals followed by
-three additions. Each row gives object/backing ownership, the archive object
-(`O`), RARC header (`R`), and exact RARC size in bytes. `VR` marks saved
-removals whose object or RARC allocation was reused by an added archive; `VC`
-and `D` compare the current-volume pointer and directory ID. Only the guarded
-ordered-replacement shapes described above can proceed; every other mismatch
-still returns `EPOCH`.
+Press D-pad Down while `G:OK` to smoke-test the practice menu. Menu input is
+removed before LM derives its own buttons and sticks, so A/B/D-pad actions do
+not leak into gameplay. Settings are session-only until `SAVE TO CARD` is
+explicitly selected and confirmed. `CLEAR ROOM` deliberately refuses the 13
+rooms whose faithful GaddWarp recipe requires a reload; those will be added
+with the future warp state machine rather than approximated in place.
+
+With Z held after an `EPOCH` refusal, `V:` shows saved/live member counts, total
+removals and additions, and whether the live order is an exact saved-list
+suffix (`HEAD1`, `HEAD2`, or `HEADN`). Six reserved rows show up to three
+removals followed by three additions. Each row gives object/backing ownership,
+the archive object (`O`), RARC header (`R`), and exact RARC size in bytes. `VR`
+marks saved removals whose object or RARC allocation was reused by an added
+archive; `VC` and `D` compare the current-volume pointer and directory ID. Only
+the guarded ordered-replacement shapes described above can proceed; every
+other mismatch still returns `EPOCH`.
 
 `RM` is LM's streamed room-archive manager. It compares the seven active room
 IDs (`A`), their complete 0x40-byte records (`R`), manager layout (`L`), the
@@ -255,7 +282,8 @@ Decode either file or the whole directory without modifying it:
 
 Replace `D:` with the SD card's drive letter. The parser marks the latest valid
 generation, prints every exact phase record, decodes the persistent
-`epoch_guard=X..` refusal stage, and reports a torn final record.
+`epoch_guard=X..` refusal stage plus its reject-summary/identity records, and
+reports a torn final record.
 For roughly two minutes after a load or later save, movement or a button change
 arms exact update tracing; a normal A press at a door also starts the four-second
 transition watch.

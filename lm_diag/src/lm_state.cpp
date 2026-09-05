@@ -254,14 +254,42 @@ constexpr u32 kModelRegistrySize =
 constexpr u32 kModelCensusMetadataSize = 5u * sizeof(u32);
 constexpr u32 kModelCensusRecordSize =
     kModelCensusMetadataSize + kModelTableSize + kModelRegistrySize;
-// Keep one coherent live model-table copy plus the saved hashes in MEM2.  The
-// saved table bytes already exist in the ordinary snapshot static ranges, so
-// carrying two 30 KiB copies in the injected MEM1 payload was pure overhead.
+// All potentially large guard workspaces live at the very end of the dedicated
+// MEM2 snapshot reservation.  They are outside kSnapshotCapacity, so copying a
+// snapshot can neither persist nor overwrite them.  This keeps the injected
+// MEM1 image small even when the census limits are raised for whole-mansion
+// testing.
+constexpr u32 kVolumeCensusRecordSize = 0x1828u;
+constexpr u32 kVolumeDiffRecordSize = 0x228u;
+constexpr u32 kResourceCensusRecordSize = 0xC4u;
+constexpr u32 kResourceDiffRecordSize = 0x38u;
+constexpr u32 kModelDiffRecordSize = 0x19A8u;
+constexpr u32 kCrossRoomCensusScratchSize =
+    2u * kVolumeCensusRecordSize + kVolumeDiffRecordSize +
+    2u * kResourceCensusRecordSize + kResourceDiffRecordSize +
+    kModelDiffRecordSize;
 constexpr u32 kModelCensusScratchSize =
     kModelCensusRecordSize + kModelCensusMetadataSize;
+constexpr u32 kGuardScratchSize =
+    kCrossRoomCensusScratchSize + kModelCensusScratchSize;
 constexpr u32 kSnapshotCapacity =
-    kSnapshotStorageSize - kModelCensusScratchSize;
-constexpr u32 kLiveModelCensusAddress = kSnapshotBase + kSnapshotCapacity;
+    kSnapshotStorageSize - kGuardScratchSize;
+constexpr u32 kGuardScratchAddress = kSnapshotBase + kSnapshotCapacity;
+constexpr u32 kSavedVolumeCensusAddress = kGuardScratchAddress;
+constexpr u32 kLiveVolumeCensusAddress =
+    kSavedVolumeCensusAddress + kVolumeCensusRecordSize;
+constexpr u32 kVolumeDiffAddress =
+    kLiveVolumeCensusAddress + kVolumeCensusRecordSize;
+constexpr u32 kSavedResourceCensusAddress =
+    kVolumeDiffAddress + kVolumeDiffRecordSize;
+constexpr u32 kLiveResourceCensusAddress =
+    kSavedResourceCensusAddress + kResourceCensusRecordSize;
+constexpr u32 kResourceDiffAddress =
+    kLiveResourceCensusAddress + kResourceCensusRecordSize;
+constexpr u32 kModelDiffAddress =
+    kResourceDiffAddress + kResourceDiffRecordSize;
+constexpr u32 kLiveModelCensusAddress =
+    kModelDiffAddress + kModelDiffRecordSize;
 constexpr u32 kSavedModelCensusMetadataAddress =
     kLiveModelCensusAddress + kModelCensusRecordSize;
 constexpr u32 kResourceMapBase = 0x80398C50u;
@@ -393,13 +421,12 @@ constexpr u32 kPostLoadInputBurstUpdates = 2u;
 constexpr u32 kPostLoadTraceHeartbeatFrames = 300u;
 constexpr u32 kPostLoadDoorWindowFrames = 240u;
 constexpr u32 kPostLoadTransitionBurstUpdates = 2u;
-constexpr u32 kMaxVolumes = 32u;
-// Cross-floor foyer transitions replace more archives than adjacent rooms.
-// Keep the guard fail-closed, but retain enough exact indices to validate the
-// observed 5-removed/2-added topology instead of rejecting on bookkeeping
-// capacity alone.
-constexpr u32 kVolumeRemovedSlots = 8u;
-constexpr u32 kVolumeAddedSlots = 8u;
+constexpr u32 kMaxVolumes = 64u;
+// A valid replacement retains at least one common long-lived volume, so an
+// endpoint can replace at most every other slot. Keep every changed index;
+// distance must not become an artificial bookkeeping limit.
+constexpr u32 kVolumeRemovedSlots = kMaxVolumes - 1u;
+constexpr u32 kVolumeAddedSlots = kMaxVolumes - 1u;
 constexpr u32 kVolumeDisplayedPerKind = 3u;
 constexpr u32 kVolumeChangeRows =
     2u * kVolumeDisplayedPerKind;
@@ -421,7 +448,13 @@ constexpr u32 kResourceSlotCount = 7u;
 constexpr u32 kResourceWantedCapacity = 24u;
 constexpr u32 kResourceRecordSize = 0x40u;
 constexpr u32 kResourceSlotSize = 0x70800u;
-constexpr u32 kModelChangeSlots = 16u;
+constexpr u32 kModelChangeSlots =
+    kVolumeRemovedSlots + kVolumeAddedSlots;
+constexpr u32 kRejectTelemetryRecordCount = 4u;
+constexpr u32 kRejectTelemetryHoldFrames = 8u;
+constexpr u32 kRejectSummaryPhase = 0xD0u;
+constexpr u32 kRejectSavedIdentityPhase = 0xD1u;
+constexpr u32 kRejectLiveIdentityPhase = 0xD2u;
 constexpr u32 kModelNameBytes = 9u;
 constexpr u32 kModelPathLimit = 96u;
 constexpr u32 kModelChangedPrimary = 1u << 0;
@@ -627,15 +660,17 @@ static_assert(sizeof(SnapshotHeader) == kHeaderSize,
 static_assert(kSnapshotBase + kSnapshotStorageSize ==
                   SUSAMUNE_MEM2_CFG_PPC_BASE,
               "LM state must end before the config/crash mailboxes");
-static_assert(kModelCensusScratchSize < kSnapshotStorageSize,
-              "LM model census scratch must fit inside snapshot storage");
+static_assert(kGuardScratchSize < kSnapshotStorageSize,
+              "LM guard scratch must fit inside snapshot storage");
 static_assert(kSnapshotBase + kSnapshotCapacity ==
-                  kLiveModelCensusAddress &&
+                  kGuardScratchAddress &&
+                  kModelDiffAddress + kModelDiffRecordSize ==
+                      kLiveModelCensusAddress &&
                   kSavedModelCensusMetadataAddress +
                           kModelCensusMetadataSize ==
                       SUSAMUNE_MEM2_CFG_PPC_BASE,
-              "LM model census scratch must occupy the snapshot tail");
-static_assert((kModelCensusScratchSize & 31u) == 0u &&
+              "LM guard scratch must occupy the snapshot tail");
+static_assert((kGuardScratchSize & 31u) == 0u &&
                   kHeapDataOffset < kSnapshotCapacity,
               "LM snapshot payload and census scratch must remain disjoint");
 static_assert(kDvdFileInfoArray +
@@ -939,16 +974,23 @@ struct ModelDiff {
     ModelChange changes[kModelChangeSlots];
 };
 
+struct RejectTelemetryRecord {
+    u32 phase;
+    u32 arg0;
+    u32 arg1;
+};
+
 static_assert(sizeof(VolumeDescriptor) == 0x60u,
               "LM volume descriptor layout drifted");
 static_assert(kModelTableSize == 0x3538u,
               "LM model descriptor table range drifted");
 static_assert(kModelRegistrySize == 0x4180u,
               "LM model registry table range drifted");
-static_assert(kVolumeRemovedSlots < 32u && kVolumeAddedSlots < 32u &&
+static_assert(kVolumeRemovedSlots < kMaxVolumes &&
+                  kVolumeAddedSlots < kMaxVolumes &&
                   kModelChangeSlots >=
                       kVolumeRemovedSlots + kVolumeAddedSlots,
-              "LM cross-room change masks exceed their exact storage");
+              "LM cross-room change storage cannot represent every delta");
 static_assert(sizeof(ModelCensusMetadata) == kModelCensusMetadataSize,
               "LM model census metadata layout drifted");
 static_assert(sizeof(ModelCensus) == kModelCensusRecordSize,
@@ -956,17 +998,31 @@ static_assert(sizeof(ModelCensus) == kModelCensusRecordSize,
 static_assert(kModelCensusRecordSize == 0x76CCu &&
                   kModelCensusScratchSize == 0x76E0u,
               "LM model census scratch size drifted");
+static_assert(sizeof(VolumeCensus) == kVolumeCensusRecordSize &&
+                  sizeof(VolumeDiff) == kVolumeDiffRecordSize &&
+                  sizeof(ResourceCensus) == kResourceCensusRecordSize &&
+                  sizeof(ResourceDiff) == kResourceDiffRecordSize &&
+                  sizeof(ModelDiff) == kModelDiffRecordSize &&
+                  kCrossRoomCensusScratchSize == 0x4DE0u &&
+                  kGuardScratchSize == 0xC4C0u,
+              "LM cross-room guard scratch layout drifted");
 
 LMState::Status sStatus = LMState::Status::Empty;
 LiveIdentity sLastIdentity = {};
 Gate sGate = Gate::Boot;
 EpochMismatch sEpochMismatch = {};
-VolumeCensus sSavedVolumeCensus = {};
-VolumeCensus sLiveVolumeCensus = {};
-VolumeDiff sVolumeDiff = {};
-ResourceCensus sSavedResourceCensus = {};
-ResourceCensus sLiveResourceCensus = {};
-ResourceDiff sResourceDiff = {};
+VolumeCensus &sSavedVolumeCensus =
+    *reinterpret_cast<VolumeCensus *>(kSavedVolumeCensusAddress);
+VolumeCensus &sLiveVolumeCensus =
+    *reinterpret_cast<VolumeCensus *>(kLiveVolumeCensusAddress);
+VolumeDiff &sVolumeDiff =
+    *reinterpret_cast<VolumeDiff *>(kVolumeDiffAddress);
+ResourceCensus &sSavedResourceCensus =
+    *reinterpret_cast<ResourceCensus *>(kSavedResourceCensusAddress);
+ResourceCensus &sLiveResourceCensus =
+    *reinterpret_cast<ResourceCensus *>(kLiveResourceCensusAddress);
+ResourceDiff &sResourceDiff =
+    *reinterpret_cast<ResourceDiff *>(kResourceDiffAddress);
 const ModelCensusView sSavedModelCensus = {
     reinterpret_cast<ModelCensusMetadata *>(
         kSavedModelCensusMetadataAddress),
@@ -980,7 +1036,12 @@ const ModelCensusView sLiveModelCensus = {
     reinterpret_cast<u32 *>(kLiveModelCensusAddress +
                             kModelCensusMetadataSize + kModelTableSize),
 };
-ModelDiff sModelDiff = {};
+ModelDiff &sModelDiff =
+    *reinterpret_cast<ModelDiff *>(kModelDiffAddress);
+RejectTelemetryRecord sRejectTelemetryRecords[kRejectTelemetryRecordCount] = {};
+u32 sRejectTelemetryCount;
+u32 sRejectTelemetryIndex;
+u32 sRejectTelemetryHoldFrames;
 bool sHaveIdentity;
 bool sSlotInitialized;
 u32 sStableFrames;
@@ -1014,8 +1075,44 @@ void traceLoadPhase(u32 phase, u32 detail) {
 }
 
 void tracePostLoadPhase(u32 phase, u32 detail = 0u) {
+    if (sRejectTelemetryCount != 0u) {
+        return;
+    }
     LMCrash::phase(SUSAMUNE_PHASE_ACTION_POST_LOAD, phase, detail,
                    sStableFrames);
+}
+
+void clearRejectTelemetry() {
+    sRejectTelemetryCount = 0u;
+    sRejectTelemetryIndex = 0u;
+    sRejectTelemetryHoldFrames = 0u;
+}
+
+void publishRejectTelemetry() {
+    if (sRejectTelemetryIndex >= sRejectTelemetryCount) {
+        return;
+    }
+    const RejectTelemetryRecord &record =
+        sRejectTelemetryRecords[sRejectTelemetryIndex];
+    LMCrash::phase(SUSAMUNE_PHASE_ACTION_LOAD, record.phase, record.arg0,
+                   record.arg1);
+}
+
+void serviceRejectTelemetry() {
+    if (sRejectTelemetryCount == 0u) {
+        return;
+    }
+    if (sRejectTelemetryHoldFrames > 1u) {
+        --sRejectTelemetryHoldFrames;
+        return;
+    }
+    ++sRejectTelemetryIndex;
+    if (sRejectTelemetryIndex >= sRejectTelemetryCount) {
+        clearRejectTelemetry();
+        return;
+    }
+    sRejectTelemetryHoldFrames = kRejectTelemetryHoldFrames;
+    publishRejectTelemetry();
 }
 
 void tracePostLoadTransitionChange() {
@@ -2070,10 +2167,13 @@ void diffVolumeCensus(const VolumeCensus &saved,
         for (u32 liveIndex = 0; liveIndex < live.count; ++liveIndex) {
             const VolumeDescriptor &newEntry = live.entries[liveIndex];
             if (findVolume(saved, newEntry) >= 0) continue;
-            if (oldEntry.object == newEntry.object) {
+            // These masks are HUD hints only. The guard's exact matching uses
+            // the full boolean vectors below, so entries beyond bit 31 remain
+            // fully validated without an undefined shift.
+            if (removed < 32u && oldEntry.object == newEntry.object) {
                 sVolumeDiff.objectReuseMask |= 1u << removed;
             }
-            if (oldEntry.archiveHeader != 0u &&
+            if (removed < 32u && oldEntry.archiveHeader != 0u &&
                 oldEntry.archiveHeader == newEntry.archiveHeader) {
                 sVolumeDiff.archiveReuseMask |= 1u << removed;
             }
@@ -2613,18 +2713,24 @@ bool changedModelWordsAreKnown(u32 index) {
 
 bool matchChangedVolumeObject(const VolumeCensus &census,
                               const u32 *changedIndices, u32 count,
-                              u32 object, u32 *matchedMask) {
+                              u32 object, bool *matched) {
     for (u32 i = 0u; i < count; ++i) {
         const u32 index = changedIndices[i];
         if (index >= census.count || census.entries[index].object != object) {
             continue;
         }
-        const u32 bit = 1u << i;
-        if ((*matchedMask & bit) != 0u) return false;
-        *matchedMask |= bit;
+        if (matched[i]) return false;
+        matched[i] = true;
         return true;
     }
     return false;
+}
+
+bool everyChangedVolumeMatched(const bool *matched, u32 count) {
+    for (u32 i = 0u; i < count; ++i) {
+        if (!matched[i]) return false;
+    }
+    return true;
 }
 
 bool modelReplacementMatches() {
@@ -2648,8 +2754,14 @@ bool modelReplacementMatches() {
         }
     }
 
-    u32 matchedRemoved = 0u;
-    u32 matchedAdded = 0u;
+    bool matchedRemoved[kVolumeRemovedSlots];
+    bool matchedAdded[kVolumeAddedSlots];
+    for (u32 i = 0u; i < kVolumeRemovedSlots; ++i) {
+        matchedRemoved[i] = false;
+    }
+    for (u32 i = 0u; i < kVolumeAddedSlots; ++i) {
+        matchedAdded[i] = false;
+    }
     for (u32 i = 0u; i < sModelDiff.changedCount; ++i) {
         const ModelChange &change = sModelDiff.changes[i];
         if (change.index >= kModelEntryCount ||
@@ -2663,7 +2775,7 @@ bool modelReplacementMatches() {
             if (!matchChangedVolumeObject(sSavedVolumeCensus,
                                           sVolumeDiff.removedIndices, removed,
                                           change.savedHandle,
-                                          &matchedRemoved)) {
+                                          matchedRemoved)) {
                 return false;
             }
         } else if (change.savedState == 0u && change.liveState == 3u &&
@@ -2672,7 +2784,7 @@ bool modelReplacementMatches() {
             if (!matchChangedVolumeObject(sLiveVolumeCensus,
                                           sVolumeDiff.addedIndices, added,
                                           change.liveHandle,
-                                          &matchedAdded)) {
+                                          matchedAdded)) {
                 return false;
             }
         } else {
@@ -2680,8 +2792,8 @@ bool modelReplacementMatches() {
         }
     }
 
-    return matchedRemoved == ((1u << removed) - 1u) &&
-           matchedAdded == ((1u << added) - 1u);
+    return everyChangedVolumeMatched(matchedRemoved, removed) &&
+           everyChangedVolumeMatched(matchedAdded, added);
 }
 
 bool guardedCrossRoomRestoreAllowed(const SnapshotHeader *header,
@@ -2942,16 +3054,77 @@ void collectPreflightEpochMismatch(EpochMismatch *mismatch,
                      header->mainDrawState, live.mainDrawState);
 }
 
+u32 rejectTelemetryByte(u32 value) {
+    return value < 0xFFu ? value : 0xFFu;
+}
+
+u32 rejectTelemetryHalf(u32 value) {
+    return value < 0xFFFFu ? value : 0xFFFFu;
+}
+
+void queueEpochRejectTelemetry(const EpochMismatch &mismatch,
+                               const SnapshotHeader *header,
+                               const LiveIdentity &live) {
+    const u32 removed =
+        sVolumeDiff.ready ? sVolumeDiff.removedCount : 0xFFu;
+    const u32 added = sVolumeDiff.ready ? sVolumeDiff.addedCount : 0xFFu;
+    const u32 models =
+        sModelDiff.ready ? sModelDiff.changedCount : 0xFFFFu;
+    const u32 epochPhase =
+        SUSAMUNE_LM_EPOCH_PHASE_FLAG |
+        ((sCrossRoomGuard << SUSAMUNE_LM_EPOCH_GUARD_SHIFT) &
+         SUSAMUNE_LM_EPOCH_GUARD_MASK) |
+        (mismatch.mask & SUSAMUNE_LM_EPOCH_MASK);
+
+    sRejectTelemetryRecords[0] = {
+        epochPhase,
+        mismatch.saved,
+        mismatch.live,
+    };
+    sRejectTelemetryRecords[1] = {
+        kRejectSummaryPhase,
+        (static_cast<u32>(LMState::Status::Epoch) << 24) |
+            ((sCrossRoomGuard & 0xFFu) << 16) |
+            (rejectTelemetryByte(header->volume[2]) << 8) |
+            rejectTelemetryByte(live.volume[2]),
+        (rejectTelemetryByte(removed) << 24) |
+            (rejectTelemetryByte(added) << 16) |
+            rejectTelemetryHalf(models),
+    };
+    sRejectTelemetryRecords[2] = {
+        kRejectSavedIdentityPhase,
+        header->mapValue,
+        header->sceneValue,
+    };
+    sRejectTelemetryRecords[3] = {
+        kRejectLiveIdentityPhase,
+        live.mapValue,
+        live.sceneValue,
+    };
+    sRejectTelemetryCount = kRejectTelemetryRecordCount;
+    sRejectTelemetryIndex = 0u;
+    sRejectTelemetryHoldFrames = kRejectTelemetryHoldFrames;
+    publishRejectTelemetry();
+}
+
+void rejectDirectEpoch(u32 detail, const SnapshotHeader *header,
+                       const LiveIdentity &live) {
+    // Some fail-closed compatibility checks do not correspond to one of the
+    // header/live epoch-mask fields. Still publish the complete rejection
+    // bundle: the flagged phase carries the check-specific detail, while D0,
+    // D1, and D2 retain the guard summary and both trustworthy identities.
+    EpochMismatch mismatch = {};
+    mismatch.saved = detail;
+    sEpochMismatch = mismatch;
+    queueEpochRejectTelemetry(mismatch, header, live);
+    setReject(LMState::Status::Epoch, detail);
+}
+
 void rejectEpoch(const EpochMismatch &mismatch, const SnapshotHeader *header,
                  const LiveIdentity &live) {
     diagnoseVolumeEpoch(header, live, mismatch.mask);
     sEpochMismatch = mismatch;
-    LMCrash::phase(SUSAMUNE_PHASE_ACTION_LOAD,
-                   SUSAMUNE_LM_EPOCH_PHASE_FLAG |
-                       ((sCrossRoomGuard << SUSAMUNE_LM_EPOCH_GUARD_SHIFT) &
-                        SUSAMUNE_LM_EPOCH_GUARD_MASK) |
-                       (mismatch.mask & SUSAMUNE_LM_EPOCH_MASK),
-                   mismatch.saved, mismatch.live);
+    queueEpochRejectTelemetry(mismatch, header, live);
     setReject(LMState::Status::Epoch, mismatch.mask);
 }
 
@@ -3116,6 +3289,7 @@ bool savedPointerCompatible(u32 saved, u32 current,
 }
 
 void saveState() {
+    clearRejectTelemetry();
     sCrossRoomGuard = kCrossRoomGuardNone;
     clearEpochMismatch();
     clearVolumeDiff();
@@ -3285,6 +3459,7 @@ void saveState() {
 }
 
 void loadState() {
+    clearRejectTelemetry();
     sCrossRoomGuard = kCrossRoomGuardNone;
     clearEpochMismatch();
     clearVolumeDiff();
@@ -3354,7 +3529,7 @@ void loadState() {
         return;
     }
     if (!cameraObjectsValid(preflight, true)) {
-        setReject(LMState::Status::Epoch, kCameraObjectPointerTable);
+        rejectDirectEpoch(kCameraObjectPointerTable, header, preflight);
         return;
     }
 
@@ -3367,7 +3542,7 @@ void loadState() {
     LiveIdentity before;
     if (!buildIdentity(&before) || !ioIdle() ||
         !cameraObjectsValid(before, true)) {
-        setReject(LMState::Status::Epoch, preflight.heap);
+        rejectDirectEpoch(preflight.heap, header, preflight);
         return;
     }
     collectPreflightEpochMismatch(&mismatch, header, before);
@@ -3378,11 +3553,11 @@ void loadState() {
     if (!beforeEpochAllowed ||
         !headerMatchesLive(header, before, guardedCrossRoom)) {
         if (mismatch.mask != 0u) rejectEpoch(mismatch, header, before);
-        else setReject(LMState::Status::Epoch, preflight.heap);
+        else rejectDirectEpoch(preflight.heap, header, before);
         return;
     }
     if (!heapsHealthy(before)) {
-        setReject(LMState::Status::Epoch, preflight.heap);
+        rejectDirectEpoch(preflight.heap, header, before);
         return;
     }
 
@@ -3557,6 +3732,9 @@ const char *volumeOwnerText(u32 owner) {
 namespace LMState {
 
 void postLoadMilestone(u32 phase) {
+    if (sRejectTelemetryCount != 0u) {
+        return;
+    }
     if (sPostLoadTraceState == 1u || sPostLoadTraceState == 2u) {
         tracePostLoadPhase(phase, sPostLoadTraceFrame);
         return;
@@ -3655,9 +3833,10 @@ void postLoadDetail(u32 phase, u32 arg0, u32 arg1) {
 }
 
 bool postLoadDetailEnabled() {
-    return sPostLoadTraceState == 1u || sPostLoadTraceState == 2u ||
+    return sRejectTelemetryCount == 0u &&
+           (sPostLoadTraceState == 1u || sPostLoadTraceState == 2u ||
            (sPostLoadTraceState == 3u &&
-            sPostLoadTracePresentationBurst);
+            sPostLoadTracePresentationBurst));
 }
 
 void presenterEnter() {
@@ -3753,15 +3932,19 @@ void presenterAfterTick() {
     }
 }
 
-void tick() {
+void tick(bool allowRequests) {
     initializeSlot();
     updateStability();
+    serviceRejectTelemetry();
     const u16 buttons = readHalf(kPadStatusGlobal);
     const bool leftEdge = buttons == kDPadLeft && sPreviousButtons != kDPadLeft;
     const bool rightEdge =
         buttons == kDPadRight && sPreviousButtons != kDPadRight;
     sPreviousButtons = buttons;
 
+    if (!allowRequests) {
+        return;
+    }
     if (leftEdge) {
         saveState();
     } else if (rightEdge) {
@@ -3801,6 +3984,10 @@ u32 snapshotKiB() {
 
 u32 stableFrames() {
     return sStableFrames;
+}
+
+bool readyForAction() {
+    return sGate == Gate::Ready && sStableFrames >= kRequiredStableFrames;
 }
 
 const char *gateText() {

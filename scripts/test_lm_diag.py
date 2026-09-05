@@ -20,6 +20,9 @@ DIAG_SOURCE = (ROOT / "lm_diag" / "src" / "lm_diag.cpp").read_text(
 CRASH_SOURCE = (ROOT / "lm_diag" / "src" / "lm_crash.cpp").read_text(
     encoding="utf-8"
 )
+PRACTICE_SOURCE = (ROOT / "lm_diag" / "src" / "lm_practice.cpp").read_text(
+    encoding="utf-8"
+)
 KERNEL_CRASH_SOURCE = (ROOT / "launcher" / "kernel" / "SusamuneCrash.c").read_text(
     encoding="utf-8"
 )
@@ -73,6 +76,7 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
                 (0x8000B714, "diagnosticGameLoop", "BL", 0x4BFFFDD5),
                 (0x8000B728, "diagnosticOuterCleanup", "BL", 0x4BFFF551),
                 (0x8000B744, "diagnosticOuterRestart", "BL", 0x4BFFA92D),
+                (0x801D20B4, "diagnosticPadRead", "BL", 0x48012849),
             ],
         )
 
@@ -86,7 +90,10 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
                 {"addr": 0x8000B354, "expected": 0x8183001C},
                 {"addr": 0x8000B358, "expected": 0x7D8803A6},
                 {"addr": 0x801D20B0, "expected": 0x387D0018},
-                {"addr": 0x801D20B4, "expected": 0x48012849},
+                {"addr": 0x801E48FC, "expected": 0x7C0802A6},
+                {"addr": 0x801E4900, "expected": 0x3C808049},
+                {"addr": 0x801E4904, "expected": 0x90010004},
+                {"addr": 0x801E4908, "expected": 0x38045910},
                 {"addr": 0x801D4124, "expected": 0x800D1594},
                 {"addr": 0x801D4128, "expected": 0x906D1594},
                 {"addr": 0x801D412C, "expected": 0x7C030378},
@@ -134,8 +141,9 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
             "kSnapshotStorageSize = SUSAMUNE_MEM2_SNAPSHOT_SIZE", STATE_SOURCE
         )
         self.assertIn(
-            "kSnapshotStorageSize - kModelCensusScratchSize", STATE_SOURCE
+            "kSnapshotStorageSize - kGuardScratchSize", STATE_SOURCE
         )
+        self.assertIn("kGuardScratchAddress = kSnapshotBase + kSnapshotCapacity", STATE_SOURCE)
         self.assertIn("kHeapMetadataStart = 0x3Cu", STATE_SOURCE)
         self.assertIn("kHeapMetadataEnd = 0x84u", STATE_SOURCE)
         self.assertIn("kExpHeapAlignment = 16u", STATE_SOURCE)
@@ -465,7 +473,7 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         )
         self.assertIn("LMEpochFieldName(mask)", KERNEL_CRASH_SOURCE)
         self.assertIn(
-            '"LM STATE X0.3.28 F:%s C:%s H:%s X%02lX"', DIAG_SOURCE
+            '"LM STATE X0.3.29 F:%s C:%s H:%s X%02lX"', DIAG_SOURCE
         )
         self.assertIn("LMState::crossRoomGuardCode()", DIAG_SOURCE)
         self.assertIn(
@@ -477,7 +485,7 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn("kCurrentVolumeGlobal = 0x804A2038u", STATE_SOURCE)
         self.assertIn("kCurrentDirIdGlobal = 0x804A2040u", STATE_SOURCE)
         self.assertIn("kMemArchiveVtable = 0x80388D5Cu", STATE_SOURCE)
-        self.assertIn("kMaxVolumes = 32u", STATE_SOURCE)
+        self.assertIn("kMaxVolumes = 64u", STATE_SOURCE)
         self.assertIn("sizeof(VolumeDescriptor) == 0x60u", STATE_SOURCE)
         self.assertIn("bool captureVolumeCensus", STATE_SOURCE)
         self.assertIn("readWord(node + 4u) != kVolumeListGlobal", STATE_SOURCE)
@@ -493,16 +501,25 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn('return "HEAD1";', STATE_SOURCE)
         self.assertIn('return "HEAD2";', STATE_SOURCE)
         self.assertIn('"V:%s S%lu>L%lu -%lu +%lu F%lu/%lu"', DIAG_SOURCE)
-        self.assertIn("kVolumeRemovedSlots = 8u", STATE_SOURCE)
-        self.assertIn("kVolumeAddedSlots = 8u", STATE_SOURCE)
+        self.assertIn("kVolumeRemovedSlots = kMaxVolumes - 1u", STATE_SOURCE)
+        self.assertIn("kVolumeAddedSlots = kMaxVolumes - 1u", STATE_SOURCE)
         self.assertIn("kVolumeDisplayedPerKind = 3u", STATE_SOURCE)
         self.assertIn("2u * kVolumeDisplayedPerKind", STATE_SOURCE)
-        self.assertIn("kModelChangeSlots = 16u", STATE_SOURCE)
+        self.assertIn(
+            "kModelChangeSlots =\n"
+            "    kVolumeRemovedSlots + kVolumeAddedSlots",
+            STATE_SOURCE,
+        )
         self.assertIn(
             "kModelChangeSlots >=\n"
             "                      kVolumeRemovedSlots + kVolumeAddedSlots",
             STATE_SOURCE,
         )
+        self.assertIn("bool matchedRemoved[kVolumeRemovedSlots]", STATE_SOURCE)
+        self.assertIn("bool matchedAdded[kVolumeAddedSlots]", STATE_SOURCE)
+        self.assertIn("everyChangedVolumeMatched(matchedRemoved", STATE_SOURCE)
+        self.assertNotIn("1u << removed) - 1u", STATE_SOURCE)
+        self.assertNotIn("1u << added) - 1u", STATE_SOURCE)
         self.assertIn('"V%s%s %s/%s O%08lX R%08lX %luB"', DIAG_SOURCE)
         self.assertIn('"VC %08lX>%08lX D%08lX>%08lX"', DIAG_SOURCE)
         self.assertIn("guardedCrossRoomRestoreAllowed", STATE_SOURCE)
@@ -515,6 +532,44 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn(
             "displayIndex - kVolumeDisplayedPerKind", display
         )
+
+    def test_cross_room_rejection_telemetry_is_durable(self) -> None:
+        self.assertIn("kRejectTelemetryRecordCount = 4u", STATE_SOURCE)
+        self.assertIn("kRejectTelemetryHoldFrames = 8u", STATE_SOURCE)
+        self.assertIn("kRejectSummaryPhase = 0xD0u", STATE_SOURCE)
+        self.assertIn("kRejectSavedIdentityPhase = 0xD1u", STATE_SOURCE)
+        self.assertIn("kRejectLiveIdentityPhase = 0xD2u", STATE_SOURCE)
+        self.assertIn("void queueEpochRejectTelemetry", STATE_SOURCE)
+        self.assertIn("header->mapValue", STATE_SOURCE)
+        self.assertIn("header->sceneValue", STATE_SOURCE)
+        self.assertIn("live.mapValue", STATE_SOURCE)
+        self.assertIn("live.sceneValue", STATE_SOURCE)
+        self.assertIn("sVolumeDiff.removedCount", STATE_SOURCE)
+        self.assertIn("sVolumeDiff.addedCount", STATE_SOURCE)
+        self.assertIn("sModelDiff.changedCount", STATE_SOURCE)
+        self.assertIn("void serviceRejectTelemetry", STATE_SOURCE)
+        self.assertIn("serviceRejectTelemetry();", STATE_SOURCE)
+        self.assertIn("sRejectTelemetryHoldFrames > 1u", STATE_SOURCE)
+        self.assertIn(
+            "if (sRejectTelemetryCount != 0u)",
+            STATE_SOURCE,
+        )
+        reject = STATE_SOURCE.split("void rejectEpoch", 1)[1].split(
+            "bool basicHeaderValid", 1
+        )[0]
+        self.assertIn("queueEpochRejectTelemetry(mismatch, header, live);", reject)
+        direct = STATE_SOURCE.split("void rejectDirectEpoch", 1)[1].split(
+            "void rejectEpoch", 1
+        )[0]
+        self.assertIn("mismatch.saved = detail;", direct)
+        self.assertIn("queueEpochRejectTelemetry(mismatch, header, live);", direct)
+        self.assertIn("setReject(LMState::Status::Epoch, detail);", direct)
+
+        load = STATE_SOURCE.split("void loadState()", 1)[1].split(
+            "void updateStability", 1
+        )[0]
+        self.assertNotIn("setReject(LMState::Status::Epoch", load)
+        self.assertEqual(load.count("rejectDirectEpoch("), 4)
 
     def test_resource_manager_epoch_census_is_bounded(self) -> None:
         self.assertIn("kResourceMapBase = 0x80398C50u", STATE_SOURCE)
@@ -548,10 +603,9 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn("kModelRegistrySize == 0x4180u", STATE_SOURCE)
         self.assertIn("kModelCensusRecordSize == 0x76CCu", STATE_SOURCE)
         self.assertIn("kModelCensusScratchSize == 0x76E0u", STATE_SOURCE)
-        self.assertIn(
-            "kModelCensusScratchSize < kSnapshotStorageSize", STATE_SOURCE
-        )
-        self.assertIn("(kModelCensusScratchSize & 31u) == 0u", STATE_SOURCE)
+        self.assertIn("kGuardScratchSize == 0xC4C0u", STATE_SOURCE)
+        self.assertIn("kGuardScratchSize < kSnapshotStorageSize", STATE_SOURCE)
+        self.assertIn("(kGuardScratchSize & 31u) == 0u", STATE_SOURCE)
         self.assertIn("kHeapDataOffset < kSnapshotCapacity", STATE_SOURCE)
         self.assertIn("kModelTableSnapshotOffset == 0xB50u", STATE_SOURCE)
         self.assertIn("kModelRegistrySnapshotOffset == 0x4088u", STATE_SOURCE)
@@ -563,6 +617,12 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         )
         self.assertNotIn("ModelCensus sSavedModelCensus", STATE_SOURCE)
         self.assertNotIn("ModelCensus sLiveModelCensus", STATE_SOURCE)
+        self.assertNotIn("VolumeCensus sSavedVolumeCensus", STATE_SOURCE)
+        self.assertNotIn("VolumeCensus sLiveVolumeCensus", STATE_SOURCE)
+        self.assertNotIn("ModelDiff sModelDiff", STATE_SOURCE)
+        self.assertIn("VolumeCensus &sSavedVolumeCensus", STATE_SOURCE)
+        self.assertIn("VolumeCensus &sLiveVolumeCensus", STATE_SOURCE)
+        self.assertIn("ModelDiff &sModelDiff", STATE_SOURCE)
         self.assertIn("const ModelCensusView sSavedModelCensus", STATE_SOURCE)
         self.assertIn("const ModelCensusView sLiveModelCensus", STATE_SOURCE)
         self.assertIn(
@@ -801,7 +861,7 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
             "diagnosticNormalDraw",
             "diagnosticPerViewDraw",
         )
-        self.assertEqual(lm_diag.mod_write_count, 21)
+        self.assertEqual(lm_diag.mod_write_count, 22)
         self.assertFalse(
             any(
                 entry["sym"].startswith(removed_prefixes)
@@ -919,6 +979,124 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
             'extern "C" void diagnosticCopyDisp', 1
         )[1]
         self.assertNotIn("LMState::tick", copy_wrapper)
+
+    def test_practice_menu_owns_input_only_during_game_update(self) -> None:
+        presenter = DIAG_SOURCE.split(
+            'extern "C" void diagnosticChangeFrameBuffer', 1
+        )[1].split('extern "C" void diagnosticFrameBegin', 1)[0]
+        self.assertLess(presenter.index("kLMChangeFrameBufferAddr"),
+                        presenter.index("LMPractice::tick();"))
+        self.assertIn("LMState::tick(!LMPractice::isOpen());", presenter)
+        self.assertIn('extern "C" u32 diagnosticPadRead', PRACTICE_SOURCE)
+        self.assertIn("kPadReadAddress = 0x801E48FCu", PRACTICE_SOURCE)
+        self.assertIn("LMPractice::filterPadRead(statuses);", PRACTICE_SOURCE)
+        self.assertIn("pad->mButton = 0u;", PRACTICE_SOURCE)
+        self.assertIn("sMenuPad.mButton = pad->mButton;", PRACTICE_SOURCE)
+        self.assertIn("sConsumeUntilRelease", PRACTICE_SOURCE)
+
+    def test_practice_menu_uses_verified_clean_runtime_primitives(self) -> None:
+        for contract in (
+            "kGetFlagAddress = 0x80065320u",
+            "kSetFlagAddress = 0x80065358u",
+            "kClearFlagAddress = 0x80065398u",
+            "kDoorKeyStateAddress = 0x8001B030u",
+            "kBlackoutAddress = 0x80037498u",
+            "kRoomLightAddress = 0x800197D8u",
+            "kBgmStartAddress = 0x801884E8u",
+            "kBgmStopAddress = 0x801885E8u",
+            "kSetPlayerHpAddress = 0x800B7BFCu",
+        ):
+            self.assertIn(contract, PRACTICE_SOURCE)
+        self.assertNotIn("kRoomDarkAddress", PRACTICE_SOURCE)
+        self.assertNotIn("sPendingLight", PRACTICE_SOURCE)
+        self.assertIn("readSignedHalf(player + 0xFCu)", PRACTICE_SOURCE)
+        self.assertIn("readSignedHalf(player + 0xFFCu)", PRACTICE_SOURCE)
+        self.assertIn("readWord(kSaveRequestAddress) != 0u", PRACTICE_SOURCE)
+        self.assertIn("readWord(kSaveBusyAddress) != 0u", PRACTICE_SOURCE)
+        self.assertIn("setFlag(35u, !hidden);", PRACTICE_SOURCE)
+        self.assertIn("setFlag(22u, on);", PRACTICE_SOURCE)
+        self.assertIn("setFlag(73u, on);", PRACTICE_SOURCE)
+        self.assertIn("setFlag(75u, on);", PRACTICE_SOURCE)
+        self.assertIn("setFlag(17u, true);", PRACTICE_SOURCE)
+        for unsafe_toggle in (
+            "setFlag(4u,",
+            "setFlag(7u,",
+            "setFlag(42u,",
+            "setFlag(76u,",
+        ):
+            self.assertNotIn(unsafe_toggle, PRACTICE_SOURCE)
+        bgm_apply = PRACTICE_SOURCE.split('showNotice("BGM STARTED")', 1)[0]
+        bgm_apply = bgm_apply.rsplit("else if (beginAction())", 1)[1]
+        self.assertIn("kBgmStartAddress", bgm_apply)
+        self.assertNotIn("kBgmStopAddress", bgm_apply)
+
+    def test_practice_menu_presets_match_gaddwarp(self) -> None:
+        self.assertIn('{"SEED", 0u}', PRACTICE_SOURCE)
+        self.assertIn('{"SPROUT", 2u}', PRACTICE_SOURCE)
+        self.assertIn('{"FLOWER", 3u}', PRACTICE_SOURCE)
+        self.assertIn('{"SPROUT", 1u}', PRACTICE_SOURCE)
+        self.assertIn('{"OPENED", 7u}', PRACTICE_SOURCE)
+        self.assertIn('{"SPROUT", 4u}', PRACTICE_SOURCE)
+        ids = re.search(
+            r"constexpr u8 kAllDoorIds\[\] = \{(.*?)\};",
+            PRACTICE_SOURCE,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(ids)
+        self.assertEqual(
+            [int(value) for value in re.findall(r"(\d+)u", ids.group(1))],
+            [
+                72, 69, 71, 68, 65, 63, 62, 59, 56, 53,
+                51, 38, 34, 33, 31, 29, 28, 27, 25, 20,
+                21, 42, 74, 17, 16, 15, 7, 14, 4, 3,
+            ],
+        )
+        self.assertIn("count <= 4u", PRACTICE_SOURCE)
+        self.assertIn("count <= 19u", PRACTICE_SOURCE)
+        self.assertIn("count <= 39u", PRACTICE_SOURCE)
+        self.assertIn("count >= 40u", PRACTICE_SOURCE)
+
+    def test_practice_menu_does_not_smuggle_in_warps_or_fake_room_reset(self) -> None:
+        self.assertNotIn("0x80063AE4", PRACTICE_SOURCE)
+        self.assertNotIn("0x80063B50", PRACTICE_SOURCE)
+        self.assertNotIn("0x804A0C24", PRACTICE_SOURCE)
+        self.assertNotIn("RESET ROOM", PRACTICE_SOURCE)
+        self.assertIn("THIS ROOM CLEAR NEEDS RELOAD", PRACTICE_SOURCE)
+        self.assertIn("59/72 ROOMS CLEAR WITHOUT RELOAD", PRACTICE_SOURCE)
+        self.assertIn("SAVE TO CARD", PRACTICE_SOURCE)
+
+    def test_practice_room_clear_partition_is_complete(self) -> None:
+        def array(name: str) -> list[int]:
+            match = re.search(
+                rf"constexpr u8 {name}\[\] = \{{(.*?)\}};",
+                PRACTICE_SOURCE,
+                re.DOTALL,
+            )
+            self.assertIsNotNone(match)
+            return [int(value) for value in re.findall(r"(\d+)u", match.group(1))]
+
+        generic = set(array("kClearGeneric235Rooms"))
+        light_only = set(array("kClearGeneric236Rooms"))
+        explicit_match = re.search(
+            r"constexpr RoomClearRecipe kRoomClearRecipes\[\] = \{(.*?)\};",
+            PRACTICE_SOURCE,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(explicit_match)
+        explicit = {
+            int(value)
+            for value in re.findall(r"\{(\d+)u,", explicit_match.group(1))
+        }
+        supported = generic | light_only | explicit
+        unsupported = set(range(72)) - supported
+        self.assertEqual(len(supported), 59)
+        self.assertEqual(
+            unsupported,
+            {10, 16, 22, 24, 25, 28, 34, 41, 55, 57, 59, 61, 70},
+        )
+        self.assertFalse(generic & light_only)
+        self.assertFalse(generic & explicit)
+        self.assertFalse(light_only & explicit)
 
     def test_frozen_transactions_do_not_take_heap_mutexes(self) -> None:
         save_frozen = STATE_SOURCE.split(

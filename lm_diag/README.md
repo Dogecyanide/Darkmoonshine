@@ -14,12 +14,20 @@ unmodified.
 The overlay rows are:
 
 ```text
-LM STATE X0.3.28 F:<floor> C:<canary> H:<heap check> X<cross-room guard>
+LM STATE X0.3.29 F:<floor> C:<canary> H:<heap check> X<cross-room guard>
 S:<state status> ST<stable frames> SZ<snapshot KiB> G:<gate> <gate value>
 ```
 
-Those two rows are the normal gameplay HUD. The detailed panel below appears
-automatically only after an `EPOCH` refusal:
+D-pad Left saves a state, D-pad Right loads it, and D-pad Down opens the
+payload-native practice menu in a stable mansion room. Menu controls are L/R
+page, D-pad Up/Down row, D-pad Left/Right value, A apply, and B close. Its four
+pages expose the clean-runtime non-warp subset recovered from GaddWarp: mansion
+mode, Boo presets, blackout, HP, doors/traps and unlock-all, Boneyard plant
+presets, 59 strict current-room clear recipes, BGM, and explicit card save.
+
+Those two rows are the normal gameplay HUD. After an `EPOCH` refusal, hold Z
+to reveal the detailed panel below. The SD journal retains the important
+refusal data whether or not Z is held:
 
 ```text
 E:<first epoch field> M<mismatch mask> <saved value>><live value>
@@ -399,12 +407,43 @@ aligned gameplay heap begins at `0x16600`. A gate accepts each wrapper only when
 its picture is null or has the retail `0x802F97DC` vtable and its unused second
 owner remains null.
 
-For the current `0.3.28` pass, create a new version-16 state, repeat the
-three-room restore that succeeded on `0.3.27`, and then touch the next door.
-Also smoke-test a same-room and a one/two-room restore. If a load refuses,
-photograph the expanded panel. After any
-exception, hard lock, or reboot, do not make another successful save before
-collecting the SD card. Copy all of these when present:
+Version `0.3.29` keeps snapshot format 16 and removes the remaining census
+bookkeeping ceiling from the experimental cross-room proof. A census now
+accepts up to 64 mounted volumes, stores as many as 63 removals and 63
+additions, and retains all 126 corresponding model changes. This does not
+weaken any topology, allocator-ownership, room-streamer, pending-I/O, or model
+predicate. The enlarged volume/model census and diff records occupy the final
+`0xC4C0` bytes of the existing 16 MiB MEM2 reservation, outside
+`kSnapshotCapacity`, rather than injected MEM1. The state-core optimization
+freed 20,488 bytes before the practice menu was linked. The final combined
+payload is 48,692 bytes: still 9,900 bytes smaller than the unoptimised
+expanded build, 14.9% of the 320 KiB working cap, and about 9.3% of the 512 KiB
+payload window.
+
+An `EPOCH` rejection now rotates four phase records long enough for the ARM
+logger to retain them: the full mismatch/guard word, a compact saved/live
+volume and archive/model-change summary, and saved/live map and scene
+identities. `read_lm_dump.py` decodes phases `D0`, `D1`, and `D2`, so testers
+need not cover the game with the detailed panel. Hold Z only when an on-screen
+census photo is useful.
+
+The menu intentionally omits anything that only gains meaning from
+GaddWarp's patched Event/Map assets. In particular, Perfect RNG, event
+skipping, instant reset, the standalone GBH/Boo-fix switches, physical item or
+element spawning, GBH scan hotspots, Dojo, rush chains, full room reset, and
+the 13 reload-dependent room clears are not presented as working clean-ISO
+toggles. Room, hallway, and map warps remain deferred to the dedicated warp
+menu/state machine.
+
+For the current `0.3.29` pass, create a fresh version-16 state for each route.
+Smoke-test same-room and one-room restores, then try progressively longer paths
+across floors and wings. Never request a load during a door animation,
+cutscene, or visible transition; wait until Luigi is controllable and the HUD
+has returned to `G:OK` with `ST` at least 3. After a successful cross-room
+restore, continue through another door and walk for at least 30 seconds. If a
+load refuses, optionally hold Z and photograph the expanded panel, then retain
+the SD logs. After any exception, hard lock, or reboot, do not make another
+successful save before collecting the SD card. Copy all of these when present:
 
 ```text
 /ndebug.log
@@ -423,8 +462,9 @@ with (replace `D:` if the SD card uses another drive letter):
 ```
 
 The parser validates the generation inverse and each phase's duplicate
-sequence/inverse fields, marks the newest valid generation, prints every exact
-record, and reports any incomplete trailing bytes.
+sequence/inverse fields, marks the newest valid generation, decodes the durable
+reject summary and identities, prints every exact record, and reports any
+incomplete trailing bytes.
 
 Build the Homebrew Channel package with:
 

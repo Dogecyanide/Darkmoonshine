@@ -2,6 +2,7 @@
 
 #include "Dolphin/types.h"
 #include "lm_crash.hxx"
+#include "lm_practice.hxx"
 #include "lm_state.hxx"
 #include "susamune/mod_bin.h"
 
@@ -15,6 +16,7 @@ const u32 kLMRootHeapAddr = 0x804A0B90u;
 const u32 kLMSystemHeapAddr = 0x804A0B94u;
 const u32 kLMGameHeapAddr = 0x804A0B98u;
 const u32 kDirectPrintPtrAddr = 0x804A2088u;
+const u32 kPadStatusAddr = 0x80494778u;
 
 const u32 kLMFrameBeginAddr = 0x800076D8u;
 const u32 kLMChangeFrameBufferAddr = 0x800077E8u;
@@ -61,6 +63,7 @@ const u32 kAnimatedModelSlotSize = 0x11Cu;
 const u32 kAnimatedModelControllerSize = 0x318u;
 const u32 kAnimatedModelPrimaryCapacity = 16u;
 const u32 kAnimatedModelSecondaryCapacity = 10u;
+const u16 kButtonZ = 0x0010u;
 const u32 kCanary[4] = {
     0x474C4D4Au,  // GLMJ
     0x4D454D31u,  // MEM1
@@ -112,6 +115,10 @@ inline u32 readWord(u32 address) {
 
 inline u8 readByte(u32 address) {
     return *reinterpret_cast<volatile u8 *>(address);
+}
+
+inline u16 readHalf(u32 address) {
+    return *reinterpret_cast<volatile u16 *>(address);
 }
 
 inline void writeWord(u32 address, u32 value) {
@@ -231,7 +238,12 @@ u32 displayKiB(u32 bytes) {
 }
 
 void drawPanel(void *directPrint, void *xfb) {
-    const bool showModel = LMState::status() == LMState::Status::Epoch;
+    // Runner captures stay readable after a refused load. Hold Z while the
+    // status is EPOCH to reveal the full guard census for an on-screen photo;
+    // the same refusal is always preserved in the SD journal either way.
+    const bool showModel = !LMPractice::isOpen() &&
+        LMState::status() == LMState::Status::Epoch &&
+        (readHalf(kPadStatusAddr) & kButtonZ) != 0u;
     const u16 panelHeight = showModel ? 142u : 18u;
 
     // JUTDirectPrint writes its built-in 6x7 font straight into the copied
@@ -244,12 +256,12 @@ void drawPanel(void *directPrint, void *xfb) {
         directPrint, 0, kPanelTop, 320, panelHeight);
     reinterpret_cast<DirectPrintDrawStringFn>(kDirectPrintDrawStringAddr)(
         directPrint, 2, kPanelTop + 2u,
-        "LM STATE X0.3.28 F:%s C:%s H:%s X%02lX",
+        "LM STATE X0.3.29 F:%s C:%s H:%s X%02lX",
         status(sFloorObserved, sFloorOk), status(sCanaryReady, sCanaryOk),
         status(sHeapCheckReady, sHeapCheckOk), LMState::crossRoomGuardCode());
     reinterpret_cast<DirectPrintDrawStringFn>(kDirectPrintDrawStringAddr)(
         directPrint, 2, kPanelTop + 9u,
-        "S:%s ST%lu SZ%luK G:%s %08lX", LMState::statusText(),
+        "S:%s ST%lu SZ%luK G:%s %08lX DN:MENU", LMState::statusText(),
         LMState::stableFrames(), displayKiB(LMState::snapshotKiB() << 10),
         LMState::gateText(), LMState::gateValue());
     if (!showModel) return;
@@ -416,7 +428,8 @@ extern "C" void diagnosticChangeFrameBuffer() {
     reinterpret_cast<VoidFn>(kLMChangeFrameBufferAddr)();
     LMState::presenterAfterRetail();
     LMState::presenterBeforeTick();
-    LMState::tick();
+    LMPractice::tick();
+    LMState::tick(!LMPractice::isOpen());
     LMState::presenterAfterTick();
 }
 
@@ -708,6 +721,7 @@ extern "C" void diagnosticCopyDisp(void *xfb, bool clear) {
             isMem1Range(directPrintAddress, 0x18u);
         if (directPrintReady) {
             drawPanel(reinterpret_cast<void *>(directPrintAddress), cachedXfb);
+            LMPractice::draw(reinterpret_cast<void *>(directPrintAddress));
         }
         drawRawHeartbeat(cachedXfb, directPrintReady);
     }

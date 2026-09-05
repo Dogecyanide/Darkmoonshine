@@ -23,6 +23,19 @@ EPOCH_GUARD_MASK = 0x3FC00000
 EPOCH_MASK = 0x003FFFFF
 U32_MASK = 0xFFFFFFFF
 ACTION_NAMES = {1: "save", 2: "load", 3: "post-load"}
+STATUS_NAMES = {
+    0: "empty",
+    1: "saved",
+    2: "loaded",
+    3: "busy",
+    4: "badcrc",
+    5: "badheap",
+    6: "epoch",
+    7: "toobig",
+}
+REJECT_SUMMARY_PHASE = 0xD0
+REJECT_SAVED_IDENTITY_PHASE = 0xD1
+REJECT_LIVE_IDENTITY_PHASE = 0xD2
 ATTEMPT_NAMES = ("lm_attempt_a.bin", "lm_attempt_b.bin")
 
 
@@ -67,6 +80,10 @@ class Journal:
 def generation_is_newer(candidate: int, current: int) -> bool:
     delta = (candidate - current) & U32_MASK
     return 0 < delta < 0x80000000
+
+
+def telemetry_count(value: int, sentinel: int) -> str:
+    return "?" if value == sentinel else str(value)
 
 
 def parse_journal_bytes(data: bytes, source: str = "<memory>") -> Journal:
@@ -162,6 +179,36 @@ def print_journal(journal: Journal, latest: bool) -> None:
             epoch = (
                 f" epoch_guard=X{guard:02X}"
                 f" epoch_mask={record.phase & EPOCH_MASK:08X}"
+            )
+        elif record.action == 2 and record.phase == REJECT_SUMMARY_PHASE:
+            status = (record.arg0 >> 24) & 0xFF
+            guard = (record.arg0 >> 16) & 0xFF
+            saved_volumes = (record.arg0 >> 8) & 0xFF
+            live_volumes = record.arg0 & 0xFF
+            removed = (record.arg1 >> 24) & 0xFF
+            added = (record.arg1 >> 16) & 0xFF
+            models = record.arg1 & 0xFFFF
+            epoch = (
+                f" reject_summary=status={STATUS_NAMES.get(status, status)}"
+                f" guard=X{guard:02X}"
+                f" volumes={telemetry_count(saved_volumes, 0xFF)}>"
+                f"{telemetry_count(live_volumes, 0xFF)}"
+                f" changes=-{telemetry_count(removed, 0xFF)}"
+                f"+{telemetry_count(added, 0xFF)}"
+                f" models={telemetry_count(models, 0xFFFF)}"
+            )
+        elif record.action == 2 and record.phase in (
+            REJECT_SAVED_IDENTITY_PHASE,
+            REJECT_LIVE_IDENTITY_PHASE,
+        ):
+            side = (
+                "saved"
+                if record.phase == REJECT_SAVED_IDENTITY_PHASE
+                else "live"
+            )
+            epoch = (
+                f" reject_identity={side}"
+                f" map={record.arg0:08X} scene={record.arg1:08X}"
             )
         print(
             f"  {index:04d} seq={record.sequence_begin:10d} "
