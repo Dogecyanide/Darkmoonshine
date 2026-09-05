@@ -410,6 +410,14 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
             "#define SUSAMUNE_LM_EPOCH_MASK            0x003FFFFFu",
             CRASH_HEADER,
         )
+        self.assertIn(
+            "#define SUSAMUNE_LM_EPOCH_GUARD_SHIFT     22u",
+            CRASH_HEADER,
+        )
+        self.assertIn(
+            "#define SUSAMUNE_LM_EPOCH_GUARD_MASK      0x3FC00000u",
+            CRASH_HEADER,
+        )
         fields = (
             "MAP_VALUE", "SCENE_VALUE", "CURRENT_SCENE", "PENDING_SCENE",
             "LOOP_MODE", "AUDIO_SCENE", "MAP_ARCHIVE", "VOLUME_COUNT",
@@ -430,18 +438,22 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn("mismatch->mask |= field;", STATE_SOURCE)
         self.assertIn("sEpochMismatch = mismatch;", STATE_SOURCE)
         self.assertIn(
-            "SUSAMUNE_LM_EPOCH_PHASE_FLAG | mismatch.mask", STATE_SOURCE
+            "sCrossRoomGuard << SUSAMUNE_LM_EPOCH_GUARD_SHIFT", STATE_SOURCE
         )
+        self.assertIn("mismatch.mask & SUSAMUNE_LM_EPOCH_MASK", STATE_SOURCE)
         self.assertEqual(STATE_SOURCE.count("clearEpochMismatch();"), 2)
         self.assertIn('return "VOLN";', STATE_SOURCE)
         self.assertIn('return "SCNP";', STATE_SOURCE)
         self.assertIn("u32 epochMask()", STATE_SOURCE)
         self.assertIn("u32 epochSaved()", STATE_SOURCE)
         self.assertIn("u32 epochLive()", STATE_SOURCE)
-        self.assertIn("Susamune: epoch mask=%08X first=%s", KERNEL_CRASH_SOURCE)
+        self.assertIn(
+            "Susamune: epoch guard=X%02X mask=%08X first=%s",
+            KERNEL_CRASH_SOURCE,
+        )
         self.assertIn("LMEpochFieldName(mask)", KERNEL_CRASH_SOURCE)
         self.assertIn(
-            '"LM STATE X0.3.26 F:%s C:%s H:%s X%02lX"', DIAG_SOURCE
+            '"LM STATE X0.3.27 F:%s C:%s H:%s X%02lX"', DIAG_SOURCE
         )
         self.assertIn("LMState::crossRoomGuardCode()", DIAG_SOURCE)
         self.assertIn(
@@ -577,10 +589,10 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
             DIAG_SOURCE,
         )
         self.assertIn('"M%03luR %s %08lX>%08lX %08lX>%08lX"', DIAG_SOURCE)
-        self.assertIn("const u16 panelHeight = showModel ? 174u : 138u", DIAG_SOURCE)
-        self.assertIn("const u16 rootTop = showModel ? 142u : 107u", DIAG_SOURCE)
+        self.assertIn("const u16 panelHeight = showModel ? 142u : 18u", DIAG_SOURCE)
+        self.assertIn("if (!showModel) return;", DIAG_SOURCE)
         self.assertIn("directPrint, 0, kPanelTop, 320, panelHeight", DIAG_SOURCE)
-        self.assertIn("directPrint, 2, kPanelTop + rootTop", DIAG_SOURCE)
+        self.assertNotIn('"ROOT %08lX %08lX-%08lX', DIAG_SOURCE)
         primary_row = (
             f"M{261:03d}B {'x' * 8} SF>F H{0x1FFFFFF:07X}>{0x1FFFFFF:07X} "
             f"R{0x1FFFFFF:07X}>{0x1FFFFFF:07X}"
@@ -641,7 +653,10 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
             r"SUSAMUNE_LM_EPOCH_VOLUME_COUNT\s*\|\s*"
             r"SUSAMUNE_LM_EPOCH_VOLUME_HEAD",
         )
-        self.assertIn("if (mismatch.mask != allowedMask) return false;", guard)
+        self.assertIn(
+            "mismatch.mask == 0u || (mismatch.mask & ~allowedMask) != 0u",
+            guard,
+        )
         self.assertEqual((1 << 7) | (1 << 8), 0x180)
         self.assertIn("orderedVolumeReplacementMatches()", guard)
         self.assertIn("sVolumeDiff.removedIndices[i]", guard)
@@ -657,6 +672,9 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         )[1].split("bool changedArchiveIsRewindable", 1)[0]
         self.assertNotIn("removedIndices[i] != i", topology)
         self.assertNotIn("addedIndices[i] != i", topology)
+        self.assertIn("(removed == 0u && added == 0u)", topology)
+        self.assertNotIn("removed == 0u ||", topology)
+        self.assertNotIn("added == 0u ||", topology)
         self.assertIn("sSavedVolumeCensus.entries[savedIndex]", topology)
         self.assertIn("sLiveVolumeCensus.entries[liveIndex]", topology)
 

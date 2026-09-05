@@ -6,7 +6,7 @@ Mansion (`GLMJ01`).
 
 ## Current status
 
-`Full-State Experimental 0.3.26` is the current hardware-testable state build.
+`Full-State Experimental 0.3.27` is the current hardware-testable state build.
 
 - The custom Nintendont launcher accepts only the verified Japanese `GLMJ01`
   revision-0 executable for injection.
@@ -56,11 +56,14 @@ Mansion (`GLMJ01`).
   build now that their target manager is captured.
 - Cross-room checks retain a complete 22-field epoch mask plus the saved and
   live values of the highest-priority mismatch on both the overlay and in
-  `/ndebug.log`.
-- The first cross-room path is deliberately narrow. It accepts only volume
-  count/head drift (`M00000180`) with an unchanged tail and all other epoch
-  fields unchanged, then requires a bounded, validated ordered substitution
-  whose surviving volumes form an exact common subsequence.
+  `/ndebug.log`. Rejection journals now also preserve the exact `X01-X08`
+  guard stage instead of relying on a photographed HUD.
+- The first cross-room path is deliberately narrow. It accepts any nonzero
+  subset of volume count/head drift (`M00000080`, `M00000100`, or
+  `M00000180`) with an unchanged tail and all other epoch fields unchanged,
+  then requires a bounded, validated ordered replacement whose surviving
+  volumes form an exact common subsequence. Pure additions and removals are
+  allowed only when every later ownership/resource/model proof also passes.
 - Generation-keyed volume, seven-slot room-streamer, and 262-entry model-table
   censuses must also prove that the changing archives and backing allocations
   are game-heap-owned and that no asynchronous resource operation is live.
@@ -96,19 +99,21 @@ Mansion (`GLMJ01`).
   bytes in the injected payload; removing the resolved per-call probes reduces
   that payload from 140,952 to 46,104 bytes while retaining the HUD, crash
   capture, journals, and animated-model repair hooks.
+- `0.3.27` removes the now-obsolete free-memory polling and large normal-play
+  display path while retaining periodic heap integrity checks. The payload is
+  45,272 bytes, 832 bytes smaller than `0.3.26`; the expanded rejection panel
+  remains available automatically when needed.
 
-Controls are D-pad Left to save and D-pad Right to load. Confirm a same-room
-restore first. For the focused cross-room test, save outside the intended foyer
-door, enter it and wait until Luigi is controllable, load back outside, then
-touch that same door again. Report whether both the door animation and room
-load complete. `0.3.26` may attempt this restore instead of returning `EPOCH`;
-a successful load is evidence for this specific resource shape, not general
-cross-room support. A larger transition can now track up to eight removed and
-eight added archives, but it still must pass every ownership, ordering,
-resource, and model-state predicate. An unsupported or asynchronous state is
-expected to refuse safely. This remains a crash-risk feasibility test. Audio
-may remain silent after a save or load until game logic starts the room
-sequence again.
+Controls are D-pad Left to save and D-pad Right to load. The normal overlay is
+now only two lines; the full archive/resource/model panel opens automatically
+after an `EPOCH` refusal. Confirm a same-room restore first. For the focused
+multi-room test, save in one stable room, walk one or two rooms away and wait
+until Luigi is controllable, then load. `0.3.27` may attempt the two transition
+shapes that `0.3.26` rejected artificially, but it still must pass every
+ownership, ordering, resource, and model-state predicate. A successful load is
+evidence for that resource shape, not yet general cross-room support. This
+remains a crash-risk feasibility test. Audio may remain silent after a save or
+load until game logic starts the room sequence again.
 
 The inherited Sunshine payload remains in the repository as porting reference.
 Its build targets are hidden unless CMake is explicitly configured with
@@ -145,7 +150,7 @@ The build emits a version-labelled tester package plus a stable compatibility
 name:
 
 ```text
-build-lm-diag/Moonshine-Luigis-Mansion-Full-State-Experimental-0.3.26.zip
+build-lm-diag/Moonshine-Luigis-Mansion-Full-State-Experimental-0.3.27.zip
 build-lm-diag/moonshine_luigis_mansion_launcher.zip
 ```
 
@@ -169,7 +174,7 @@ disc or ISO.
 
 Back up any real memory-card data, install the four packaged files under
 `apps/moonshine_luigis_mansion/`, and launch a clean revision-0 GLMJ01 image.
-The overlay must start with `LM STATE X0.3.26`; wait until `F`, `C`, `H`, and
+The overlay must start with `LM STATE X0.3.27`; wait until `F`, `C`, `H`, and
 `G` are `OK` and `ST` is at least 3. The trailing `X` byte reports the guarded
 cross-room path: `X00` means it has not been attempted, `XA0` means it passed,
 and `X01` through `X08` identify the refusal stage: epoch mask, saved-census
@@ -188,14 +193,14 @@ identifies the first differing field, the `M` value records every differing
 preflight field, and the final pair is `saved>live`. A later generic refusal
 can still show `E:NONE M00000000`.
 
-For a volume mismatch, `V:` shows saved/live member counts, total removals and
+After an `EPOCH` refusal, `V:` shows saved/live member counts, total removals and
 additions, and whether the live order is an exact saved-list suffix (`HEAD1`,
 `HEAD2`, or `HEADN`). Six reserved rows show up to three removals followed by
 three additions. Each row gives object/backing ownership, the archive object
 (`O`), RARC header (`R`), and exact RARC size in bytes. `VR` marks saved
 removals whose object or RARC allocation was reused by an added archive; `VC`
 and `D` compare the current-volume pointer and directory ID. Only the guarded
-front-substitution shape described above can proceed; every other mismatch
+ordered-replacement shapes described above can proceed; every other mismatch
 still returns `EPOCH`.
 
 `RM` is LM's streamed room-archive manager. It compares the seven active room
@@ -239,7 +244,8 @@ Decode either file or the whole directory without modifying it:
 ```
 
 Replace `D:` with the SD card's drive letter. The parser marks the latest valid
-generation, prints every exact phase record, and reports a torn final record.
+generation, prints every exact phase record, decodes the persistent
+`epoch_guard=X..` refusal stage, and reports a torn final record.
 For roughly two minutes after a load or later save, movement or a button change
 arms exact update tracing; a normal A press at a door also starts the four-second
 transition watch.

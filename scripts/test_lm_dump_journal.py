@@ -2,7 +2,9 @@
 """Host contracts for the GLMJ hard-lock phase journal."""
 
 from pathlib import Path
+from contextlib import redirect_stdout
 import importlib.util
+import io
 import re
 import sys
 import unittest
@@ -128,6 +130,45 @@ class LuigiMansionDumpJournalContracts(unittest.TestCase):
     def test_parser_uses_wrapping_generation_order(self) -> None:
         self.assertTrue(lm_dump.generation_is_newer(1, 0xFFFFFFFF))
         self.assertFalse(lm_dump.generation_is_newer(0xFFFFFFFF, 1))
+
+    def test_parser_decodes_composite_guard_and_legacy_epoch_records(self) -> None:
+        guarded_phase = (
+            lm_dump.EPOCH_PHASE_FLAG
+            | (8 << lm_dump.EPOCH_GUARD_SHIFT)
+            | 0x180
+        )
+        records = (
+            phase_record(2),
+            phase_record(4, action=2, phase=0x80000100),
+            phase_record(6, action=2, phase=guarded_phase),
+        )
+        journal = lm_dump.parse_journal_bytes(journal_bytes(records=records))
+        output = io.StringIO()
+        with redirect_stdout(output):
+            lm_dump.print_journal(journal, latest=True)
+        text = output.getvalue()
+        self.assertIn("epoch_guard=X00 epoch_mask=00000100", text)
+        self.assertIn("epoch_guard=X08 epoch_mask=00000180", text)
+
+    def test_guard_field_does_not_overlap_epoch_bits_or_flags(self) -> None:
+        self.assertEqual(
+            lm_dump.EPOCH_GUARD_MASK & lm_dump.EPOCH_MASK,
+            0,
+        )
+        self.assertEqual(
+            lm_dump.EPOCH_GUARD_MASK & lm_dump.EPOCH_PHASE_FLAG,
+            0,
+        )
+        for guard in (*range(9), 0xA0):
+            phase = (
+                lm_dump.EPOCH_PHASE_FLAG
+                | (guard << lm_dump.EPOCH_GUARD_SHIFT)
+                | 0x180
+            )
+            decoded = (
+                phase & lm_dump.EPOCH_GUARD_MASK
+            ) >> lm_dump.EPOCH_GUARD_SHIFT
+            self.assertEqual(decoded, guard)
 
 
 if __name__ == "__main__":

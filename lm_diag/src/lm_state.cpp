@@ -2444,9 +2444,13 @@ void diagnoseVolumeEpoch(const SnapshotHeader *header,
 bool orderedVolumeReplacementMatches() {
     const u32 removed = sVolumeDiff.removedCount;
     const u32 added = sVolumeDiff.addedCount;
+    // Walking farther through the mansion can leave only live additions (or
+    // only saved removals).  The common-subsequence, ownership, resource, and
+    // model proofs below handle a zero side; only a no-change/reorder-only
+    // result is not a bounded replacement.
     if (!sVolumeDiff.ready || !sVolumeDiff.savedValid ||
-        !sVolumeDiff.liveValid || !sVolumeDiff.commonOrder || removed == 0u ||
-        added == 0u || removed > kVolumeRemovedSlots ||
+        !sVolumeDiff.liveValid || !sVolumeDiff.commonOrder ||
+        (removed == 0u && added == 0u) || removed > kVolumeRemovedSlots ||
         added > kVolumeAddedSlots || removed + added > kModelChangeSlots ||
         sSavedVolumeCensus.count < removed ||
         sLiveVolumeCensus.count < added) {
@@ -2640,7 +2644,12 @@ bool guardedCrossRoomRestoreAllowed(const SnapshotHeader *header,
     const u32 allowedMask = SUSAMUNE_LM_EPOCH_VOLUME_COUNT |
                             SUSAMUNE_LM_EPOCH_VOLUME_HEAD;
     sCrossRoomGuard = kCrossRoomGuardMask;
-    if (mismatch.mask != allowedMask) return false;
+    // The epoch mask merely selects the guarded proof.  A same-cardinality
+    // replacement changes only HEAD, while one-sided growth can change COUNT
+    // and HEAD.  Tail or any non-volume identity drift still fails closed.
+    if (mismatch.mask == 0u || (mismatch.mask & ~allowedMask) != 0u) {
+        return false;
+    }
 
     sCrossRoomGuard = kCrossRoomGuardGeneration;
     if (sSavedVolumeCensus.generation != header->generation ||
@@ -2892,7 +2901,10 @@ void rejectEpoch(const EpochMismatch &mismatch, const SnapshotHeader *header,
     diagnoseVolumeEpoch(header, live, mismatch.mask);
     sEpochMismatch = mismatch;
     LMCrash::phase(SUSAMUNE_PHASE_ACTION_LOAD,
-                   SUSAMUNE_LM_EPOCH_PHASE_FLAG | mismatch.mask,
+                   SUSAMUNE_LM_EPOCH_PHASE_FLAG |
+                       ((sCrossRoomGuard << SUSAMUNE_LM_EPOCH_GUARD_SHIFT) &
+                        SUSAMUNE_LM_EPOCH_GUARD_MASK) |
+                       (mismatch.mask & SUSAMUNE_LM_EPOCH_MASK),
                    mismatch.saved, mismatch.live);
     setReject(LMState::Status::Epoch, mismatch.mask);
 }

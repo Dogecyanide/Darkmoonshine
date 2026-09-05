@@ -10,12 +10,10 @@ namespace {
 // GLMJ01 retail addresses.  Keeping every call explicit makes this payload
 // independent of the inherited Sunshine symbol maps and C++ object graph.
 const u32 kOSArenaLoAddr = 0x804A0A18u;
-const u32 kOSArenaHiAddr = 0x804A20B8u;
 
 const u32 kLMRootHeapAddr = 0x804A0B90u;
 const u32 kLMSystemHeapAddr = 0x804A0B94u;
 const u32 kLMGameHeapAddr = 0x804A0B98u;
-const u32 kJKRCurrentHeapAddr = 0x804A1FF4u;
 const u32 kDirectPrintPtrAddr = 0x804A2088u;
 
 const u32 kLMFrameBeginAddr = 0x800076D8u;
@@ -45,8 +43,6 @@ const u32 kDCFlushRangeAddr = 0x801D5E24u;
 const u32 kDirectPrintEraseAddr = 0x801D4294u;
 const u32 kDirectPrintChangeFrameBufferAddr = 0x801D4830u;
 const u32 kDirectPrintDrawStringAddr = 0x801D49F8u;
-const u32 kExpHeapLargestFreeAddr = 0x801CA4D0u;
-const u32 kExpHeapTotalFreeAddr = 0x801CA53Cu;
 const u32 kExpHeapCheckAddr = 0x801CA61Cu;
 const u32 kExpHeapVtable = 0x8038886Cu;
 
@@ -94,26 +90,15 @@ typedef void (*CacheRangeFn)(void *, u32);
 typedef void (*DirectPrintEraseFn)(void *, u16, u16, u16, u16);
 typedef void (*DirectPrintChangeFrameBufferFn)(void *, void *, u16, u16);
 typedef void (*DirectPrintDrawStringFn)(void *, u16, u16, const char *, ...);
-typedef u32 (*ExpHeapSizeFn)(void *);
 typedef bool (*ExpHeapCheckFn)(void *);
 typedef void (*RetailCall4Fn)(u32, u32, u32, u32);
 
 struct HeapSample {
     u32 pointer;
-    u32 largestFree;
-    u32 totalFree;
     bool valid;
 };
 
 u32 sFrames;
-u32 sSystemMinimum;
-u32 sGameMinimum;
-u32 sInitialArenaLo;
-u32 sInitialArenaHi;
-u32 sRaisedArenaLo;
-bool sSystemSampled;
-bool sGameSampled;
-bool sArenaCaptured;
 bool sFloorObserved;
 bool sFloorOk;
 bool sCanaryReady;
@@ -156,26 +141,13 @@ inline volatile u32 *canaryWords() {
 }
 
 HeapSample sampleHeap(u32 globalAddress) {
-    HeapSample sample = {readWord(globalAddress), 0, 0, false};
+    HeapSample sample = {readWord(globalAddress), false};
     if (!isExpHeapPointer(sample.pointer)) {
         return sample;
     }
 
     sample.valid = true;
-    sample.largestFree =
-        reinterpret_cast<ExpHeapSizeFn>(kExpHeapLargestFreeAddr)(
-            reinterpret_cast<void *>(sample.pointer));
-    sample.totalFree =
-        reinterpret_cast<ExpHeapSizeFn>(kExpHeapTotalFreeAddr)(
-            reinterpret_cast<void *>(sample.pointer));
     return sample;
-}
-
-void updateMinimum(u32 value, u32 *minimum, bool *sampled) {
-    if (!*sampled || value < *minimum) {
-        *minimum = value;
-    }
-    *sampled = true;
 }
 
 void sampleFloorAndCanary() {
@@ -258,17 +230,9 @@ u32 displayKiB(u32 bytes) {
     return kib <= 99999u ? kib : 99999u;
 }
 
-void drawPanel(void *directPrint, void *xfb, const HeapSample &system,
-               const HeapSample &game) {
-    const u32 root = readWord(kLMRootHeapAddr);
-    const bool rootReadable = isExpHeapPointer(root);
-    const u32 rootStart = rootReadable ? readWord(root + 0x30u) : 0;
-    const u32 rootEnd = rootReadable ? readWord(root + 0x34u) : 0;
-    const u32 current = readWord(kJKRCurrentHeapAddr);
-    const u32 group = isExpHeapPointer(current) ? readByte(current + 0x69u) : 0;
+void drawPanel(void *directPrint, void *xfb) {
     const bool showModel = LMState::status() == LMState::Status::Epoch;
-    const u16 panelHeight = showModel ? 174u : 138u;
-    const u16 rootTop = showModel ? 142u : 107u;
+    const u16 panelHeight = showModel ? 142u : 18u;
 
     // JUTDirectPrint writes its built-in 6x7 font straight into the copied
     // YUYV framebuffer.  It has no resource-font or heap dependency.  At a
@@ -280,7 +244,7 @@ void drawPanel(void *directPrint, void *xfb, const HeapSample &system,
         directPrint, 0, kPanelTop, 320, panelHeight);
     reinterpret_cast<DirectPrintDrawStringFn>(kDirectPrintDrawStringAddr)(
         directPrint, 2, kPanelTop + 2u,
-        "LM STATE X0.3.26 F:%s C:%s H:%s X%02lX",
+        "LM STATE X0.3.27 F:%s C:%s H:%s X%02lX",
         status(sFloorObserved, sFloorOk), status(sCanaryReady, sCanaryOk),
         status(sHeapCheckReady, sHeapCheckOk), LMState::crossRoomGuardCode());
     reinterpret_cast<DirectPrintDrawStringFn>(kDirectPrintDrawStringAddr)(
@@ -288,6 +252,8 @@ void drawPanel(void *directPrint, void *xfb, const HeapSample &system,
         "S:%s ST%lu SZ%luK G:%s %08lX", LMState::statusText(),
         LMState::stableFrames(), displayKiB(LMState::snapshotKiB() << 10),
         LMState::gateText(), LMState::gateValue());
+    if (!showModel) return;
+
     reinterpret_cast<DirectPrintDrawStringFn>(kDirectPrintDrawStringAddr)(
         directPrint, 2, kPanelTop + 16u,
         "E:%s M%08lX %08lX>%08lX", LMState::epochText(),
@@ -361,57 +327,43 @@ void drawPanel(void *directPrint, void *xfb, const HeapSample &system,
         LMState::resourceWantedSequenceChanged(),
         LMState::resourceWantedRemovedId(0u),
         LMState::resourceWantedAddedId(0u));
-    if (showModel) {
-        reinterpret_cast<DirectPrintDrawStringFn>(
-            kDirectPrintDrawStringAddr)(
-            directPrint, 2, kPanelTop + 107u,
-            "MM F%lu/%lu N%lu P%08lX>%08lX R%08lX>%08lX",
-            LMState::modelSavedFault(), LMState::modelLiveFault(),
-            LMState::modelChangedCount(), LMState::modelSavedSignature(),
-            LMState::modelLiveSignature(),
-            LMState::modelSavedRegistrySignature(),
-            LMState::modelLiveRegistrySignature());
-        for (u32 i = 0; i < 4u; ++i) {
-            const u32 modelIndex = LMState::modelChangeIndex(i);
-            if (modelIndex >= 262u) continue;
-            const char *kind = LMState::modelChangeKind(i);
-            if (kind[0] == 'R') {
-                reinterpret_cast<DirectPrintDrawStringFn>(
-                    kDirectPrintDrawStringAddr)(
-                    directPrint, 2, kPanelTop + 114u + i * 7u,
-                    "M%03luR %s %08lX>%08lX %08lX>%08lX", modelIndex,
-                    LMState::modelChangeName(i),
-                    LMState::modelChangeSavedHandle(i),
-                    LMState::modelChangeLiveHandle(i),
-                    LMState::modelChangeSavedRegistrySignature(i),
-                    LMState::modelChangeLiveRegistrySignature(i));
-            } else {
-                reinterpret_cast<DirectPrintDrawStringFn>(
-                    kDirectPrintDrawStringAddr)(
-                    directPrint, 2, kPanelTop + 114u + i * 7u,
-                    "M%03lu%s %s S%lX>%lX H%07lX>%07lX R%07lX>%07lX",
-                    modelIndex, kind, LMState::modelChangeName(i),
-                    LMState::modelChangeSavedState(i) & 0xFu,
-                    LMState::modelChangeLiveState(i) & 0xFu,
-                    LMState::modelChangeSavedHandle(i) & 0x1FFFFFFu,
-                    LMState::modelChangeLiveHandle(i) & 0x1FFFFFFu,
-                    LMState::modelChangeSavedRoot(i) & 0x1FFFFFFu,
-                    LMState::modelChangeLiveRoot(i) & 0x1FFFFFFu);
-            }
+    reinterpret_cast<DirectPrintDrawStringFn>(
+        kDirectPrintDrawStringAddr)(
+        directPrint, 2, kPanelTop + 107u,
+        "MM F%lu/%lu N%lu P%08lX>%08lX R%08lX>%08lX",
+        LMState::modelSavedFault(), LMState::modelLiveFault(),
+        LMState::modelChangedCount(), LMState::modelSavedSignature(),
+        LMState::modelLiveSignature(),
+        LMState::modelSavedRegistrySignature(),
+        LMState::modelLiveRegistrySignature());
+    for (u32 i = 0; i < 4u; ++i) {
+        const u32 modelIndex = LMState::modelChangeIndex(i);
+        if (modelIndex >= 262u) continue;
+        const char *kind = LMState::modelChangeKind(i);
+        if (kind[0] == 'R') {
+            reinterpret_cast<DirectPrintDrawStringFn>(
+                kDirectPrintDrawStringAddr)(
+                directPrint, 2, kPanelTop + 114u + i * 7u,
+                "M%03luR %s %08lX>%08lX %08lX>%08lX", modelIndex,
+                LMState::modelChangeName(i),
+                LMState::modelChangeSavedHandle(i),
+                LMState::modelChangeLiveHandle(i),
+                LMState::modelChangeSavedRegistrySignature(i),
+                LMState::modelChangeLiveRegistrySignature(i));
+        } else {
+            reinterpret_cast<DirectPrintDrawStringFn>(
+                kDirectPrintDrawStringAddr)(
+                directPrint, 2, kPanelTop + 114u + i * 7u,
+                "M%03lu%s %s S%lX>%lX H%07lX>%07lX R%07lX>%07lX",
+                modelIndex, kind, LMState::modelChangeName(i),
+                LMState::modelChangeSavedState(i) & 0xFu,
+                LMState::modelChangeLiveState(i) & 0xFu,
+                LMState::modelChangeSavedHandle(i) & 0x1FFFFFFu,
+                LMState::modelChangeLiveHandle(i) & 0x1FFFFFFu,
+                LMState::modelChangeSavedRoot(i) & 0x1FFFFFFu,
+                LMState::modelChangeLiveRoot(i) & 0x1FFFFFFu);
         }
     }
-    reinterpret_cast<DirectPrintDrawStringFn>(kDirectPrintDrawStringAddr)(
-        directPrint, 2, kPanelTop + rootTop,
-        "ROOT %08lX %08lX-%08lX\n"
-        "SYS  %08lX L/T/M %lu/%lu/%luK\n"
-        "GAME %08lX L/T/M %lu/%lu/%luK\n"
-        "CUR %08lX G%lu A %08lX>%08lX H%08lX",
-        root, rootStart, rootEnd, system.pointer,
-        displayKiB(system.largestFree), displayKiB(system.totalFree),
-        displayKiB(sSystemMinimum), game.pointer,
-        displayKiB(game.largestFree), displayKiB(game.totalFree),
-        displayKiB(sGameMinimum), current, group, sInitialArenaLo,
-        sRaisedArenaLo, sInitialArenaHi);
 }
 
 void drawRawHeartbeat(void *xfb, bool directPrintReady) {
@@ -440,12 +392,6 @@ void sampleDiagnostic(HeapSample *system, HeapSample *game) {
     sampleFloorAndCanary();
     *system = sampleHeap(kLMSystemHeapAddr);
     *game = sampleHeap(kLMGameHeapAddr);
-    if (system->valid) {
-        updateMinimum(system->totalFree, &sSystemMinimum, &sSystemSampled);
-    }
-    if (game->valid) {
-        updateMinimum(game->totalFree, &sGameMinimum, &sGameSampled);
-    }
     sampleHeapChecks(*system, *game);
 }
 
@@ -456,15 +402,8 @@ void sampleDiagnostic(HeapSample *system, HeapSample *game) {
 // The threshold makes repeated calls safe after createRoot consumes the arena.
 extern "C" void *getArenaLo() {
     u32 arenaLo = readWord(kOSArenaLoAddr);
-    const u32 rawArenaLo = arenaLo;
     if (arenaLo < kModEnd) {
         arenaLo += SUSAMUNE_ARENA_RESERVE_SIZE;
-    }
-    if (!sArenaCaptured) {
-        sInitialArenaLo = rawArenaLo;
-        sInitialArenaHi = readWord(kOSArenaHiAddr);
-        sRaisedArenaLo = arenaLo;
-        sArenaCaptured = true;
     }
     return reinterpret_cast<void *>(arenaLo);
 }
@@ -768,8 +707,7 @@ extern "C" void diagnosticCopyDisp(void *xfb, bool clear) {
         const bool directPrintReady =
             isMem1Range(directPrintAddress, 0x18u);
         if (directPrintReady) {
-            drawPanel(reinterpret_cast<void *>(directPrintAddress), cachedXfb,
-                      system, game);
+            drawPanel(reinterpret_cast<void *>(directPrintAddress), cachedXfb);
         }
         drawRawHeartbeat(cachedXfb, directPrintReady);
     }

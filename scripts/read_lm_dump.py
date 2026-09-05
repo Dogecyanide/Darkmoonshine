@@ -17,6 +17,10 @@ HEADER_VERSION = 1
 PHASE_MAGIC = 0x53504853  # SPHS
 GAME_ID_GLMJ = 0x474C4D4A
 SAVE_COMPLETE_PHASE = 0x7F
+EPOCH_PHASE_FLAG = 0x80000000
+EPOCH_GUARD_SHIFT = 22
+EPOCH_GUARD_MASK = 0x3FC00000
+EPOCH_MASK = 0x003FFFFF
 U32_MASK = 0xFFFFFFFF
 ACTION_NAMES = {1: "save", 2: "load", 3: "post-load"}
 ATTEMPT_NAMES = ("lm_attempt_a.bin", "lm_attempt_b.bin")
@@ -153,8 +157,12 @@ def print_journal(journal: Journal, latest: bool) -> None:
         validity = "ok" if record.valid else "INVALID"
         action = ACTION_NAMES.get(record.action, f"unknown-{record.action}")
         epoch = ""
-        if record.action == 2 and record.phase & 0x80000000:
-            epoch = f" epoch_mask={record.phase & 0x003FFFFF:08X}"
+        if record.action == 2 and record.phase & EPOCH_PHASE_FLAG:
+            guard = (record.phase & EPOCH_GUARD_MASK) >> EPOCH_GUARD_SHIFT
+            epoch = (
+                f" epoch_guard=X{guard:02X}"
+                f" epoch_mask={record.phase & EPOCH_MASK:08X}"
+            )
         print(
             f"  {index:04d} seq={record.sequence_begin:10d} "
             f"action={action:<9} phase={record.phase:08X} "

@@ -16,10 +16,15 @@
 #define SUSAMUNE_PHASE_ACTION_LOAD        2u
 #define SUSAMUNE_PHASE_ACTION_POST_LOAD   3u
 
-/* A load phase with this flag is an LM epoch-mismatch diagnostic.  The
- * remaining bits form a complete mismatch mask; arg0/arg1 hold the saved and
- * live values for the lowest-priority-numbered mismatch. */
+/* A load phase with this flag is an LM epoch-mismatch diagnostic.  The low
+ * 22 bits form a complete mismatch mask, bits 22-29 retain the guarded
+ * cross-room stage, and arg0/arg1 hold the saved and live values for the
+ * lowest-priority-numbered mismatch.  Guard 0 is a legacy/generic epoch
+ * reject; 1-8 are fail-closed guard stages and A0 means the guard passed
+ * before a later compatibility check rejected the load. */
 #define SUSAMUNE_LM_EPOCH_PHASE_FLAG      0x80000000u
+#define SUSAMUNE_LM_EPOCH_GUARD_SHIFT     22u
+#define SUSAMUNE_LM_EPOCH_GUARD_MASK      0x3FC00000u
 #define SUSAMUNE_LM_EPOCH_MAP_VALUE       (1u << 0)
 #define SUSAMUNE_LM_EPOCH_SCENE_VALUE     (1u << 1)
 #define SUSAMUNE_LM_EPOCH_CURRENT_SCENE   (1u << 2)

@@ -334,9 +334,12 @@ static void PollPhaseTrace(void)
 	if (snapshot.action == SUSAMUNE_PHASE_ACTION_LOAD &&
 		(snapshot.phase & SUSAMUNE_LM_EPOCH_PHASE_FLAG)) {
 		u32 mask = snapshot.phase & SUSAMUNE_LM_EPOCH_MASK;
-		dbgprintf("Susamune: epoch mask=%08X first=%s "
+		u32 guard = (snapshot.phase & SUSAMUNE_LM_EPOCH_GUARD_MASK) >>
+			SUSAMUNE_LM_EPOCH_GUARD_SHIFT;
+		dbgprintf("Susamune: epoch guard=X%02X mask=%08X first=%s "
 			"saved=%08X live=%08X\r\n",
-			mask, LMEpochFieldName(mask), snapshot.arg0, snapshot.arg1);
+			guard, mask, LMEpochFieldName(mask), snapshot.arg0,
+			snapshot.arg1);
 		return;
 	}
 	dbgprintf("Susamune: phase seq=%u action=%s(%u) phase=%02X "

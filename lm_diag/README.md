@@ -14,8 +14,14 @@ unmodified.
 The overlay rows are:
 
 ```text
-LM STATE X0.3.26 F:<floor> C:<canary> H:<heap check> X<cross-room guard>
+LM STATE X0.3.27 F:<floor> C:<canary> H:<heap check> X<cross-room guard>
 S:<state status> ST<stable frames> SZ<snapshot KiB> G:<gate> <gate value>
+```
+
+Those two rows are the normal gameplay HUD. The detailed panel below appears
+automatically only after an `EPOCH` refusal:
+
+```text
 E:<first epoch field> M<mismatch mask> <saved value>><live value>
 V:<topology> S<saved count>>L<live count> -<removed> +<added> F<save>/<live fault>
 V-<archive name> <object>/<backing owner> O<object> R<RARC> <size bytes>
@@ -31,10 +37,6 @@ RA <slot>:<saved active ID>><live active ID> <slot>:<saved ID>><live ID>
 RW <saved/live wanted count> -<removed> +<added> Q<sequence change> <first removed>><first added>
 MM F<save/live fault> N<changed indices> P<saved/live primary hash> R<saved/live registry hash>
 M<index><P/R/B> <name> S<saved/live state> H<saved/live handle> R<saved/live parsed root>
-ROOT <root> <start>-<end>
-SYS  <system> L/T/M <largest>/<total>/<minimum total KiB>
-GAME <game>   L/T/M <largest>/<total>/<minimum total KiB>
-CUR <current> G<group> A <raw low>><raised low> H<initial high>
 ```
 
 `WAIT` means that the relevant heap has not existed long enough to test.
@@ -60,6 +62,10 @@ checkerboard. Full-state builds also append cache-coherent `Susamune: phase`
 records while saving, loading, and traversing the restored-frame trace window.
 The ARM writes and syncs these independently, so the last record survives a
 PowerPC hard lock that never reaches the exception dumper.
+
+Starting with `0.3.27`, an epoch record also embeds that `X` stage in otherwise
+unused phase bits. `/ndebug.log` and `scripts/read_lm_dump.py` therefore retain
+the exact guard that refused a load even if no HUD screenshot is available.
 
 Starting with `0.3.25`, a valid GLMJ diagnostic boot also creates `/lm_dumps`
 on the launcher's storage device. `lm_attempt_a.bin` and `lm_attempt_b.bin`
@@ -368,13 +374,21 @@ old diagnostic-capacity refusal: all existing list-order, archive ownership,
 room-streamer, pending-I/O, model-state, and exact-match predicates remain
 fail-closed.
 
-For the current `0.3.26` pass, create a new version-15 state, repeat the
-same-room and cross-room/re-entry checks above, then walk normally after a
-successful load. Also retry the bottom-foyer save to upstairs-room load that
-previously stopped at `X04`; it may now load or advance to a substantive
-`X05-X08` refusal. After any exception, hard lock, or reboot, do not make
-another successful save before collecting the SD card. Copy all of these when
-present:
+Version `0.3.27` keeps snapshot format 15. It broadens the first epoch gate from
+exact `COUNT|HEAD` drift to any nonzero subset of those two fields, and allows
+the ordered topology proof to handle pure archive additions or removals. The
+unchanged tail/current loader context, game-heap archive ownership, idle room
+streamer, and exact model linkage remain mandatory. The normal HUD is reduced
+to two rows; the full census panel appears only on `EPOCH`. Obsolete free-space
+polling and minimum tracking are removed while periodic `JKRExpHeap::check`
+calls remain, reducing the injected payload from 46,104 to 45,272 bytes.
+
+For the current `0.3.27` pass, create a new version-15 state and test both
+observed multi-room paths: a load from two rooms away, and the bottom-foyer
+room to the room connected upstairs. If either refuses, photograph the expanded
+panel; the attempt journal will now retain the same `X` stage. After any
+exception, hard lock, or reboot, do not make another successful save before
+collecting the SD card. Copy all of these when present:
 
 ```text
 /ndebug.log
