@@ -7,13 +7,13 @@
 # headers, data blobs, the fatfs-ppc lib). The final boot.dol is packaged into the
 # HBC app zip.
 #
-# Nothing here is version-specific: the mod ships as mod_<region>.bin files
+# Nothing here is version-specific: the mod ships as mod_<tag>.bin files
 # packaged alongside boot.dol and read at runtime. Normally driven by the root
 # project's `launcher` target (which passes those bins in), but also configurable
 # standalone for launcher dev, in which case the app is packaged without them.
 
 cmake_minimum_required(VERSION 3.21)
-project(susamune_launcher NONE)
+project(moonshine_luigis_mansion_launcher NONE)
 
 include(ExternalProject)
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/BundledToolchain.cmake")
@@ -30,14 +30,27 @@ get_filename_component(_repo_root "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
 set(LAUNCHER_SCRIPTS_DIR "${_repo_root}/scripts" CACHE PATH "repo scripts/ dir")
 set(LAUNCHER_DEFAULT_SOURCE "di" CACHE STRING "meta.xml default load source (di/sd/usb)")
 set(LAUNCHER_VERSION "" CACHE STRING "meta.xml version override")
+set(LAUNCHER_OUTPUT_ZIP "" CACHE FILEPATH "canonical HBC app package")
+set(LAUNCHER_VERSIONED_OUTPUT_ZIP "" CACHE FILEPATH
+    "optional version-labelled copy of the HBC app package")
 set(LAUNCHER_TEST_LOG "" CACHE FILEPATH "tester log included in the HBC app")
 set(LAUNCHER_CHANGELOG "" CACHE FILEPATH "changelog included in the HBC app")
-option(LAUNCHER_DISABLE_SUSAMUNE_PATCH "Disable the Susamune patch in the launcher kernel" OFF)
+option(LAUNCHER_DISABLE_SUSAMUNE_PATCH "Disable game injection" ON)
+if(LAUNCHER_DISABLE_SUSAMUNE_PATCH)
+    set(_sunshine_assets_default OFF)
+else()
+    set(_sunshine_assets_default ON)
+endif()
+option(LAUNCHER_ENABLE_SUNSHINE_ASSETS
+    "Enable Sunshine-only ghost directory and model staging"
+    ${_sunshine_assets_default})
+option(LAUNCHER_ENABLE_DIAGNOSTIC_LOG
+    "Force Nintendont's SD debug log for a hardware diagnostic build" OFF)
 
-# mod_<region>.bin files to ship inside the HBC app dir. Empty for a standalone
+# mod_<tag>.bin files to ship inside the HBC app dir. Empty for a standalone
 # launcher build: the kernel then finds no staged blob at boot and runs the game
 # unmodified, which is exactly what stock Nintendont does.
-set(SUSAMUNE_MOD_BINS "" CACHE STRING "mod_<region>.bin files to package")
+set(SUSAMUNE_MOD_BINS "" CACHE STRING "mod_<tag>.bin files to package")
 
 # --- Shared output locations, produced by one group and consumed by others -----
 set(_shared    "${CMAKE_BINARY_DIR}/shared")
@@ -97,6 +110,9 @@ ExternalProject_Add(wii
     CMAKE_ARGS
         "-DCMAKE_TOOLCHAIN_FILE=${_cmake_dir}/toolchain-wii.cmake"
         "-DLAUNCHER_BOOT_DOL=${_boot_dol}"
+        "-DLAUNCHER_DISABLE_SUSAMUNE_PATCH=${LAUNCHER_DISABLE_SUSAMUNE_PATCH}"
+        "-DLAUNCHER_ENABLE_SUNSHINE_ASSETS=${LAUNCHER_ENABLE_SUNSHINE_ASSETS}"
+        "-DLAUNCHER_ENABLE_DIAGNOSTIC_LOG=${LAUNCHER_ENABLE_DIAGNOSTIC_LOG}"
         ${_common_args}
     DEPENDS ppc arm
     BUILD_ALWAYS ON
@@ -122,6 +138,14 @@ if(LAUNCHER_OUTPUT_ZIP)
     if(LAUNCHER_CHANGELOG)
         set(_changelog_args --changelog "${LAUNCHER_CHANGELOG}")
     endif()
+    set(_package_byproducts "${LAUNCHER_OUTPUT_ZIP}")
+    set(_versioned_copy_command "")
+    if(LAUNCHER_VERSIONED_OUTPUT_ZIP)
+        list(APPEND _package_byproducts "${LAUNCHER_VERSIONED_OUTPUT_ZIP}")
+        set(_versioned_copy_command
+            COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                "${LAUNCHER_OUTPUT_ZIP}" "${LAUNCHER_VERSIONED_OUTPUT_ZIP}")
+    endif()
     add_custom_target(package ALL
         COMMAND "${LAUNCHER_PYTHON}" "${LAUNCHER_SCRIPTS_DIR}/package_launcher.py"
             --boot-dol "${_boot_dol}"
@@ -131,7 +155,9 @@ if(LAUNCHER_OUTPUT_ZIP)
             ${_test_log_args}
             ${_changelog_args}
             ${_mod_bin_args}
-        COMMENT "Packaging launcher HBC app zip"
+        ${_versioned_copy_command}
+        BYPRODUCTS ${_package_byproducts}
+        COMMENT "Packaging launcher HBC app zips"
         VERBATIM)
     add_dependencies(package wii)
 endif()

@@ -1,4 +1,31 @@
-# susamune — context for agentic sessions
+# DarkMoonshine — active project context
+
+This repository now targets Japanese Luigi's Mansion, GLMJ01 revision 0.
+The Sunshine notes below document the inherited upstream implementation;
+their game addresses, snapshot limits and memory-card policy are not LM rules.
+
+- LM code is in `lm_diag/`; current contracts are in `doc/lm-state-storage.md`,
+  `doc/lm-current-priorities.md` and `lm_diag/README.md`.
+- Build the full Wii mod with `cmake --preset diagnostic_console` then
+  `cmake --build --preset diagnostic`. `release_console` also enables the
+  full payload. `dev_console` remains the launcher-only bootstrap.
+- Branding comes from `include/susamune/lm_branding.h`; keep presets,
+  packaging tests and the current checklist in sync. Package every version
+  as a ZIP with both codec licenses, release notes and test instructions.
+- LM keeps one complete RAM state, format 28, storage protocol 6. SD archives
+  are authenticated against build/setup; even a branding rebuild requires
+  fresh archives. Never remove checks to accept an older file.
+- Preserve staged-save admission, SD-import rollback, owner proofs, transition
+  guards and cache ownership. `include/susamune/mem2_map.h` is the memory-map
+  authority; temporary staging is not free space for another resident slot.
+- Never commit retail ISOs/DOLs, private state archives, SD keys, crash/attempt
+  dumps, personal settings, build trees or local SD-install scripts.
+- Personal `Darkmoonshine_Theme/bgm.mp3` must remain ignored and excluded
+  from release ZIPs. Keep runtime support for user-supplied SD music.
+- User-reported RC4 Wii tests passed before V1.0.0 promotion. Host builds and
+  tests do not prove new hardware behavior or universal mansion/boss support.
+
+# Inherited susamune / Super Mario Sunshine reference
 
 A speedrun-practice mod for **Super Mario Sunshine** (JP GMSJ01, US GMSE01, and PAL GMSP01). The mod's code is injected into the game at runtime — the primary distribution is a **custom Nintendont** (Homebrew Channel app) that patches the selected disc revision in memory on boot, so end users need only a real disc (or their own ISO on SD) and **no patched ISO/DOL**. Dolphin remains the primary *development* environment (via a patched `main.dol`). The companion repo `../../src/sms` is the in-progress decompilation of the game and the source of truth for any game-side type layouts; refer to it freely when sizing a struct or tracing a code path.
 

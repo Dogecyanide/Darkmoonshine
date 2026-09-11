@@ -36,6 +36,7 @@ anyway, and at 60 Hz over a handful of text rows the cost is invisible.
 #include "SusamuneMenu.h"
 #include "ff_utf8.h"
 #include "diskio.h"
+#include "susamune/susamune_cfg.h"
 
 // Grey, for options and devices that exist but cannot be used here.
 #define DARK_GRAY 0x666666FF
@@ -48,7 +49,6 @@ static const char kPathUnset[] = "<not set - press A>";
 enum
 {
 	ROW_LAUNCH = 0,
-	ROW_VERSION,
 	ROW_PATH,
 	ROW_SETTINGS,
 
@@ -57,7 +57,7 @@ enum
 
 // Vertical layout. The header occupies rows 0-2 at MENU_POS_Y.
 #define MAIN_Y_LAUNCH   (MENU_POS_Y + 20*6)
-#define MAIN_Y_VERSION  (MENU_POS_Y + 20*8)
+#define MAIN_Y_TARGET   (MENU_POS_Y + 20*8)
 #define MAIN_Y_PATH     (MENU_POS_Y + 20*9)
 #define MAIN_Y_SETTINGS (MENU_POS_Y + 20*10)
 #define MAIN_Y_ERROR    (MENU_POS_Y + 20*12)
@@ -188,6 +188,18 @@ static bool DeviceMounted(int dev)
 	return devices[dev] != NULL;
 }
 
+static bool EnsureDeviceMounted(int dev)
+{
+	char message[64];
+	if (dev < DEV_SD || dev > DEV_USB || (dev == DEV_USB && isWiiVC))
+		return false;
+	if (DeviceMounted(dev))
+		return true;
+	snprintf(message, sizeof(message), "Checking %s...", kDevLabel[dev]);
+	ShowMessageScreen(message);
+	return MountDevice(dev) != NULL;
+}
+
 // Which device a stored path lives on, or -1 for the disc drive / a path with
 // no recognisable prefix.
 static int DeviceOfPath(const char *path)
@@ -216,15 +228,15 @@ static bool SaveIfDirty(void)
 	{
 		// Non-fatal: the user's choices still apply to this boot.
 		snprintf(ErrorLine, sizeof(ErrorLine),
-			 "Settings were not saved: %s:/susamune.ini is not writable",
-			 LauncherDev);
+			 "Settings were not saved: %s:%s is not writable",
+			 LauncherDev, SUSAMUNE_INI_PATH);
 		return false;
 	}
 	if (SusamuneIniSave(LauncherDev) != FR_OK)
 	{
 		// Non-fatal: the user's choices still apply to this boot.
 		snprintf(ErrorLine, sizeof(ErrorLine),
-			 "Could not write %s:/susamune.ini", LauncherDev);
+			 "Could not write %s:%s", LauncherDev, SUSAMUNE_INI_PATH);
 		CanSave = false;
 		return false;
 	}
@@ -385,6 +397,7 @@ static int BrowseDevices(u8 version)
 	static const int kRowCount = 3;
 	HeldCounters held;
 	int pos = 0;
+	bool failed[2] = {false, false};
 
 	memset(&held, 0, sizeof(held));
 
@@ -419,10 +432,12 @@ static int BrowseDevices(u8 version)
 				if (!IsWiiU() && !isWiiVC)
 					return -1;
 			}
-			else if (DeviceMounted(pos - 1))
+			else if (EnsureDeviceMounted(pos - 1))
 			{
 				return pos - 1;
 			}
+			else
+				failed[pos - 1] = true;
 		}
 
 		ClearScreen();
@@ -441,7 +456,7 @@ static int BrowseDevices(u8 version)
 			if (i == 0)
 				usable = (!IsWiiU() && !isWiiVC);
 			else
-				usable = DeviceMounted(i - 1);
+				usable = !failed[i - 1] && !(i - 1 == DEV_USB && isWiiVC);
 
 			color = usable ? BLACK : DARK_GRAY;
 
@@ -470,10 +485,15 @@ static int BrowseDevices(u8 version)
 				PrintFormat(DEFAULT_SIZE, MAROON, MENU_POS_X, MENU_POS_Y + 20*14 + 6,
 					    "The disc drive cannot be used on this console.");
 		}
-		else if (!DeviceMounted(pos - 1))
+		else if (failed[pos - 1])
 		{
 			PrintFormat(DEFAULT_SIZE, MAROON, MENU_POS_X, MENU_POS_Y + 20*14 + 6,
-				    "No %s device was detected.", kDevLabel[pos-1]);
+				    "No %s detected. Press A to try again.", kDevLabel[pos-1]);
+		}
+		else if (!DeviceMounted(pos - 1))
+		{
+			PrintFormat(DEFAULT_SIZE, BLACK, MENU_POS_X, MENU_POS_Y + 20*14 + 6,
+				    "Press A to check %s and browse its files.", kDevLabel[pos-1]);
 		}
 		else
 		{
@@ -790,16 +810,13 @@ static const char *const kHelpForceProgressive[] =
 {
 	"Force games to render in 480p.",
 	"",
-	"For PAL Super Mario Sunshine this also patches the game's",
-	"progressive-mode check using the method from Swiss.",
-	"",
 	"Requires component video or a compatible digital adapter.",
 	NULL
 };
 static const char *const kHelpDisableRumble[] =
 {
-	"Keep Super Mario Sunshine's controller rumble disabled",
-	"automatically on every launch.",
+	"Keep controller rumble disabled automatically on every",
+	"launch.",
 	"",
 	"This changes only the motor output. Controller input and",
 	"Native Control support are unaffected.",
@@ -1066,7 +1083,7 @@ static bool ValidateSelection(void)
 			 "Path has no device prefix: %s", path);
 		return false;
 	}
-	if (!DeviceMounted(dev))
+	if (!EnsureDeviceMounted(dev))
 	{
 		snprintf(ErrorLine, sizeof(ErrorLine),
 			 "%s is not available", kDevLabel[dev]);
@@ -1207,9 +1224,8 @@ static void DrawMainMenu(int pos)
 	PrintCenter(BLACK, MAIN_Y_LAUNCH, "Launch Game%s",
 		    pos == ROW_LAUNCH ? " " ARROW_LEFT : "");
 
-	PrintCenter(BLACK, MAIN_Y_VERSION, "Version: %s%s",
-		    SusaVersionName(gIni.version),
-		    pos == ROW_VERSION ? " " ARROW_LEFT : "");
+	PrintCenter(BLACK, MAIN_Y_TARGET, "Target: %s",
+		    SusaVersionName(gIni.version));
 
 	if (pathSet)
 	{
@@ -1296,13 +1312,6 @@ void SusamuneMenuRun(const char *launcherDev, bool canSave)
 						ApplyToNinCFG();
 						return;
 					}
-					break;
-
-				case ROW_VERSION:
-					gIni.version = (u8)((gIni.version + 1) % SUSA_VER_COUNT);
-					IniDirty = true;
-					ErrorLine[0] = '\0';
-					BlinkFrames = 0;
 					break;
 
 				case ROW_PATH:

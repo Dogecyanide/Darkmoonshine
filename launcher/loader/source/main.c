@@ -56,7 +56,9 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include "SusamuneMusic.h"
 #include "SusamuneShadowAsset.h"
 #include "SusamuneTheme.h"
+#include "SusamuneThemeFiles.h"
 #include "susamune/mem2_map.h"
+#include "susamune/susamune_cfg.h"
 
 #include "ff_utf8.h"
 #include "diskio.h"
@@ -1001,85 +1003,6 @@ static const char NIN_BUILD_STRING[] ALIGNED(32) = NIN_VERSION_STRING; // Versio
 bool isWiiVC = false;
 bool wiiVCInternal = false;
 
-/**
- * Update meta.xml.
- */
-static void updateMetaXml(void)
-{
-	char filepath[MAXPATHLEN];
-	bool dir_argument_exists = strlen(launch_dir);
-	
-	snprintf(filepath, sizeof(filepath), "%smeta.xml",
-		dir_argument_exists ? launch_dir : "/apps/Nintendont/");
-
-	if (!dir_argument_exists) {
-		gprintf("Creating new directory\r\n");
-		f_mkdir_char("/apps");
-		f_mkdir_char("/apps/Nintendont");
-	}
-
-	char new_meta[1024];
-	int len = snprintf(new_meta, sizeof(new_meta),
-		META_XML "\r\n<app version=\"1\">\r\n"
-		"\t<name>" META_NAME "</name>\r\n"
-		"\t<coder>" META_AUTHOR "</coder>\r\n"
-		"\t<version>%d.%d%s</version>\r\n"
-		"\t<release_date>2023</release_date>\r\n"
-		"\t<short_description>" META_SHORT "</short_description>\r\n"
-		"\t<long_description>" META_LONG1 "\r\n\r\n" META_LONG2 "</long_description>\r\n"
-		"\t<ahb_access/>\r\n"
-		"</app>\r\n",
-		NIN_VERSION >> 16, NIN_VERSION & 0xFFFF,
-#ifdef NIN_SPECIAL_VERSION
-		NIN_SPECIAL_VERSION
-#else
-		""
-#endif
-  			);
-	if (len > sizeof(new_meta))
-		len = sizeof(new_meta);
-
-	// Check if the file already exists.
-	FIL meta;
-	if (f_open_char(&meta, filepath, FA_READ|FA_OPEN_EXISTING) == FR_OK)
-	{
-		// File exists. If it's the same as the new meta.xml,
-		// don't bother rewriting it.
-		char orig_meta[1024];
-		if (len == meta.obj.objsize)
-		{
-			// File is the same length.
-			UINT read;
-			f_read(&meta, orig_meta, len, &read);
-			if (read == (UINT)len &&
-			    !strncmp(orig_meta, new_meta, len))
-			{
-				// File is identical.
-				// Don't rewrite it.
-				f_close(&meta);
-				return;
-			}
-		}
-		f_close(&meta);
-	}
-
-	// File does not exist, or file is not identical.
-	// Write the new meta.xml.
-/*	if (f_open_char(&meta, filepath, FA_WRITE|FA_CREATE_ALWAYS) == FR_OK)
-	{
-		// Reserve space in the file.
-		if (f_size(&meta) < len) {
-			f_expand(&meta, len, 1);
-		}
-
-		// Write the new meta.xml.
-		UINT wrote;
-		f_write(&meta, new_meta, len, &wrote);
-		f_close(&meta);
-		FlushDevices();
-	} */
-}
-
 static const WCHAR *primaryDevice;
 void changeToDefaultDrive()
 {
@@ -1118,6 +1041,20 @@ static bool MountDeviceOnce(int dev)
 static bool MountLauncherDevice(void)
 {
 	return MountDeviceOnce(UseSD ? DEV_SD : DEV_USB);
+}
+
+static bool PreloadLauncherTheme(void)
+{
+	const int dev = UseSD ? DEV_SD : DEV_USB;
+	bool loaded = false;
+	if (dev == DEV_USB && isWiiVC)
+		return false;
+	// Cold USB may require patched IOS; a theme must not trigger its retry loop.
+	if (MountDeviceWithTimeout(dev, 0) != NULL)
+		loaded = SusamuneThemeLoad(GetRootDevice(), launch_dir, &background);
+	// Keep the decoded image, never FAT handles, across the IOS reload.
+	UnmountDevice(dev);
+	return loaded;
 }
 
 /**
@@ -1535,7 +1472,7 @@ static char dev_es[] ATTRIBUTE_ALIGN(32) = "/dev/es";
 extern vu32 FoundVersion;
 int main(int argc, char **argv)
 {
-	bool presentationAttempted = false;
+	bool themeLoaded;
 	size_t launchDirLength;
 	char *first_slash;
 
@@ -1552,7 +1489,7 @@ int main(int argc, char **argv)
 	// Command-line configuration is gone: susamune.ini is the only place
 	// launcher settings live, and a second way to set them was a second
 	// source of truth. argv[0] is still read further down for launch_dir,
-	// which is how mod_<region>.bin is found next to boot.dol.
+	// which is how mod_<tag>.bin is found next to boot.dol.
 	memset((void*)ncfg, 0, sizeof(NIN_CFG));
 	ncfg->Magicbytes = 0x01070CF6;
 	ncfg->Version = NIN_CFG_VERSION;
@@ -1599,26 +1536,9 @@ int main(int argc, char **argv)
 		DCStoreRange((void*)0x80001800, 0x1800);
 	}
 
-	// Load the launcher's presentation before its first visible frame. The
-	// temporary mount is closed before an IOS reload and reopened afterwards.
 	UseSD = (strncmp(launch_dir, "usb:", 4) != 0);
-	if (MountLauncherDevice() == false)
-	{
-		UseSD = !UseSD;
-		MountLauncherDevice();
-	}
-	if (devices[DEV_SD] || devices[DEV_USB])
-	{
-		SusamuneThemeLoad(GetRootDevice(), launch_dir, &background);
-		SusamuneMusicLoad(GetRootDevice(), launch_dir);
-		presentationAttempted = true;
-	}
-	RevealBackground(false);
-	if (SusamuneThemeWarning()[0] != '\0')
-	{
-		ShowMessageScreen(SusamuneThemeWarning());
-		usleep(2500000);
-	}
+	themeLoaded = PreloadLauncherTheme();
+	ShowMessageScreen("Starting Darkmoonshine...");
 	s32 fd;
 
 	/* Wii VC fw.img is pre-patched but Wii/vWii isnt, so we
@@ -1741,21 +1661,13 @@ int main(int argc, char **argv)
 
 	gprintf("Nintendont at your service!\r\n%s\r\n", NIN_BUILD_STRING);
 	KernelLoaded = 1;
-	SusamuneMusicStart();
-	if (SusamuneMusicWarning()[0] != '\0')
-	{
-		ShowMessageScreen(SusamuneMusicWarning());
-		usleep(2500000);
-	}
 
 	// Checking for storage devices...
 	ShowMessageScreen("Checking storage devices...");
 
 	// Mount the launcher's own device first and nothing else: susamune.ini is
-	// there, and until it has been read we do not know whether the user wants
-	// the menu (which needs both devices listed) or an auto boot (which needs
-	// only the one the game is on). Bringing USB up costs seconds -- it has a
-	// 10 second init timeout -- so an all-SD auto boot must not pay for it.
+	// there. Mount the selected game's device only when launching or browsing;
+	// an unused USB device must not delay an all-SD launch or the main menu.
 	UseSD = (strncmp(launch_dir, "usb:", 4) != 0);
 	if (MountLauncherDevice() == false)
 	{
@@ -1771,6 +1683,15 @@ int main(int argc, char **argv)
 		PrintFormat(DEFAULT_SIZE, MAROON, MENU_POS_X, 232, "No FAT device found!");
 		ExitToLoader(1);
 	}
+	{
+		FRESULT themeDirectory = SusamuneThemeEnsureDirectory(GetRootDevice());
+		if (themeDirectory != FR_OK)
+			gprintf("Darkmoonshine: optional theme folder unavailable (%u)\n",
+				(unsigned int)themeDirectory);
+	}
+	if (!themeLoaded)
+		SusamuneThemeLoad(GetRootDevice(), launch_dir, &background);
+	ShowMessageScreen("Loading settings...");
 
 	// Initialize controllers.
 	// FIXME: Initialize before storage devices.
@@ -1791,30 +1712,6 @@ int main(int argc, char **argv)
 	free(fontbuffer);
 	//gprintf("Font: 0x1AFF00 starts with %.4s, 0x1FCF00 with %.4s\n", (char*)0x93100000, (char*)0x93100000 + 0x4D000);
 
-	// An early device may have been unavailable until after the IOS reload.
-	if (!presentationAttempted)
-	{
-		SusamuneThemeLoad(GetRootDevice(), launch_dir, &background);
-		SusamuneMusicLoad(GetRootDevice(), launch_dir);
-		SusamuneMusicStart();
-		ClearScreen();
-		GRRLIB_Render();
-		ClearScreen();
-		if (SusamuneThemeWarning()[0] != '\0')
-		{
-			ShowMessageScreen(SusamuneThemeWarning());
-			usleep(2500000);
-		}
-		if (SusamuneMusicWarning()[0] != '\0')
-		{
-			ShowMessageScreen(SusamuneMusicWarning());
-			usleep(2500000);
-		}
-	}
-
-	// Update meta.xml.
-	updateMetaXml();
-
 	// susamune.ini is the only launcher config; nincfg.bin is gone. The kernel
 	// takes NIN_CFG through the MEM2 handoff, so the file was never anything
 	// but loader-side persistence, and keeping it would have left a second
@@ -1825,8 +1722,10 @@ int main(int argc, char **argv)
 	// Can the ini be written back? Probe once so the menu can say so up front
 	// rather than only failing when the user changes something.
 	bool LauncherCanSave = SusamuneIniWritable(GetRootDevice());
+#ifdef LAUNCHER_ENABLE_SUNSHINE_ASSETS
 	if (!SusamuneGhostEnsureDirectories(GetRootDevice()))
 		gprintf("Susamune: ghost directories are unavailable\n");
+#endif
 	if (LauncherCanSave && SusamuneIniNeedsWrite())
 	{
 		// First run on this card: author [nintendont] so the keys are there to
@@ -1838,8 +1737,8 @@ int main(int argc, char **argv)
 	{
 		char warning[128];
 		snprintf(warning, sizeof(warning),
-			 "Warning: %s:/susamune.ini is not writable.\nSettings cannot be saved.",
-			 GetRootDevice());
+			 "Warning: %s:%s is not writable.\nSettings cannot be saved.",
+			 GetRootDevice(), SUSAMUNE_INI_PATH);
 		ShowMessageScreen(warning);
 		usleep(2500000);
 	}
@@ -1867,13 +1766,6 @@ int main(int argc, char **argv)
 
 		if (!cancel)
 		{
-			// Mount the game's device too if it is the other one; leave it
-			// alone otherwise. This is the whole point of auto boot being
-			// fast -- no scan of a device nothing is going to be read from.
-			int gameDev = SusamuneAutoBootDevice();
-			if (gameDev >= 0)
-				MountDeviceOnce(gameDev);
-
 			if (SusamuneAutoBoot(GetRootDevice()))
 				ncfg->Config |= NIN_CFG_AUTO_BOOT;
 			// Otherwise fall through to the menu, which shows why.
@@ -1882,10 +1774,19 @@ int main(int argc, char **argv)
 
 	if(!(ncfg->Config & NIN_CFG_AUTO_BOOT))
 	{
-		// The menu lists both devices, so the one auto boot skipped has to
-		// come up now.
-		MountDeviceOnce(DEV_SD);
-		MountDeviceOnce(DEV_USB);
+		SusamuneMusicInit();
+		SusamuneMusicLoad(GetRootDevice(), launch_dir);
+		SusamuneMusicStart();
+		if (SusamuneThemeWarning()[0] != '\0')
+		{
+			ShowMessageScreen(SusamuneThemeWarning());
+			usleep(2500000);
+		}
+		if (SusamuneMusicWarning()[0] != '\0')
+		{
+			ShowMessageScreen(SusamuneMusicWarning());
+			usleep(2500000);
+		}
 		SusamuneMenuRun(GetRootDevice(), LauncherCanSave);
 	}
 	else
@@ -1895,6 +1796,12 @@ int main(int argc, char **argv)
 		GRRLIB_Render();
 		ClearScreen();
 	}
+
+#ifdef LAUNCHER_ENABLE_DIAGNOSTIC_LOG
+	// This build is meant for one capture-card/SD round trip.  Keep a kernel
+	// trace as an independent proof of staging and authenticated hook install.
+	ncfg->Config |= NIN_CFG_LOG;
+#endif
 
 //Init DI and set correct ID if needed
 	u32 CurDICMD = 0;
@@ -2282,12 +2189,15 @@ int main(int argc, char **argv)
 	srand (time (0));
 	SetFilePatches();
 
-	// Last disc/FAT read into the loader-only buffer. The payload is flushed
-	// before its ready header and survives the handoff as the ghost record slot.
+	// Sunshine-specific disc scanning stays disabled until a GLMJ01 asset
+	// pipeline has been designed and verified.
+#ifdef LAUNCHER_ENABLE_SUNSHINE_ASSETS
 	SusamuneStageShadowAsset(GetRootDevice(), ncfg->GamePath, CurDICMD,
 		ISOShift, wiiVCInternal);
+#endif
 
-	//stage mod_<region>.bin for this disc; the kernel copies it into MEM1
+	// This still clears the staging header. GLMJ is deliberately absent from
+	// the old GMS payload table, so no file can be loaded in bootstrap builds.
 	SusamuneLoadMod(ncfg->GameID);
 	
 	// More SMC stuff

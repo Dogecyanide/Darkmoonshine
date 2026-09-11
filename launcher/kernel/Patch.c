@@ -4082,43 +4082,7 @@ void DoPatches( char *Buffer, u32 Length, u32 DiscOffset )
 		UseReadLimit = 0;
 }
 
-// The staged mod_<region>.bin, if the loader found one for this disc. PatchGame
-// can consume this immutable prefix again after an in-session reset; the asset
-// vault begins at the staged-file ceiling after PatchSusamune copies the code.
-static const struct SusamuneModHeader *SusamuneModStaged(void)
-{
-	const struct SusamuneModHeader *hdr = SUSAMUNE_MOD_PHYS_PTR;
-	u32 codeEnd;
-
-	sync_before_read((void*)hdr, SUSAMUNE_MOD_HEADER_SIZE);
-
-	if (hdr->magic != SUSAMUNE_MOD_MAGIC || hdr->version != SUSAMUNE_MOD_VERSION)
-		return NULL;
-	if (hdr->gameId != GAME_ID)
-		return NULL;
-	if (hdr->baseAddr != SUSAMUNE_MOD_BASE_FOR_GAME_ID(GAME_ID)
-			|| hdr->arenaReserve != SUSAMUNE_ARENA_RESERVE_SIZE
-			|| hdr->codeSize > SUSAMUNE_MOD_BLOB_MAX_SIZE)
-		return NULL;
-
-	// The file is untrusted input off an SD card: refuse anything whose parts
-	// do not add up, rather than memcpy'ing a bogus length into MEM1.
-	if (hdr->codeSize > SUSAMUNE_MOD_STAGED_FILE_MAX_SIZE -
-			SUSAMUNE_MOD_HEADER_SIZE
-			|| (hdr->codeSize & 3))
-		return NULL;
-	codeEnd = SUSAMUNE_MOD_HEADER_SIZE + hdr->codeSize;
-	if (hdr->writeCount > (SUSAMUNE_MOD_STAGED_FILE_MAX_SIZE - codeEnd) / 8)
-		return NULL;
-	if (hdr->fileSize != codeEnd + hdr->writeCount * 8)
-		return NULL;
-	if (hdr->fileSize > SUSAMUNE_MOD_STAGED_FILE_MAX_SIZE)
-		return NULL;
-
-	return hdr;
-}
-
-static u32 SusamuneAssetCrc32(const void *data, u32 size)
+static u32 SusamuneBytesCrc32(const void *data, u32 size)
 {
 	const u8 *bytes = (const u8*)data;
 	u32 crc = 0xFFFFFFFFu;
@@ -4130,6 +4094,104 @@ static u32 SusamuneAssetCrc32(const void *data, u32 size)
 			crc = (crc >> 1) ^ (0xEDB88320u & (0u - (crc & 1u)));
 	}
 	return crc ^ 0xFFFFFFFFu;
+}
+
+// The staged mod_<tag>.bin, if the loader found one for this disc. PatchGame
+// can consume this immutable prefix again after an in-session reset; the asset
+// vault begins at the staged-file ceiling after PatchSusamune copies the code.
+static const struct SusamuneModHeader *SusamuneModStaged(void)
+{
+	const struct SusamuneModHeader *hdr = SUSAMUNE_MOD_PHYS_PTR;
+	u32 codeEnd, recordSize, footerSize, recordsEnd;
+	const u32 *footer;
+
+	sync_before_read((void*)hdr, SUSAMUNE_MOD_HEADER_SIZE);
+
+	if (hdr->magic != SUSAMUNE_MOD_MAGIC ||
+			hdr->version != SUSAMUNE_MOD_VERSION_FOR_GAME_ID(GAME_ID))
+	{
+		dbgprintf("Patch:Mod stage rejected: magic/version %08X/%u\r\n",
+			hdr->magic, hdr->version);
+		return NULL;
+	}
+	if (hdr->gameId != GAME_ID)
+	{
+		dbgprintf("Patch:Mod stage rejected: game %08X != %08X\r\n",
+			hdr->gameId, GAME_ID);
+		return NULL;
+	}
+	if (GAME_ID == SUSAMUNE_MOD_GAME_ID_LMJ &&
+			(GAME_ID6 != 0x3031u || read32(4) != 0x30310000u))
+	{
+		dbgprintf("Patch:Mod stage rejected: GLMJ disc suffix %04X/%08X\r\n",
+			GAME_ID6, read32(4));
+		return NULL;
+	}
+	if (hdr->baseAddr != SUSAMUNE_MOD_BASE_FOR_GAME_ID(GAME_ID)
+			|| hdr->arenaReserve != SUSAMUNE_ARENA_RESERVE_SIZE
+			|| hdr->codeSize > SUSAMUNE_MOD_BLOB_MAX_SIZE)
+	{
+		dbgprintf("Patch:Mod stage rejected: base/reserve/code %08X/%X/%X\r\n",
+			hdr->baseAddr, hdr->arenaReserve, hdr->codeSize);
+		return NULL;
+	}
+
+	// The file is untrusted input off an SD card: refuse anything whose parts
+	// do not add up, rather than memcpy'ing a bogus length into MEM1.
+	if (hdr->codeSize > SUSAMUNE_MOD_STAGED_FILE_MAX_SIZE -
+			SUSAMUNE_MOD_HEADER_SIZE
+			|| (hdr->codeSize & 3))
+	{
+		dbgprintf("Patch:Mod stage rejected: malformed code size %X\r\n",
+			hdr->codeSize);
+		return NULL;
+	}
+	codeEnd = SUSAMUNE_MOD_HEADER_SIZE + hdr->codeSize;
+	recordSize = hdr->version == SUSAMUNE_MOD_VERSION_AUTH ? 12u : 8u;
+	footerSize = hdr->version == SUSAMUNE_MOD_VERSION_AUTH ?
+		SUSAMUNE_MOD_AUTH_FOOTER_SIZE : 0u;
+	if (codeEnd > SUSAMUNE_MOD_STAGED_FILE_MAX_SIZE - footerSize)
+	{
+		dbgprintf("Patch:Mod stage rejected: code end %X\r\n", codeEnd);
+		return NULL;
+	}
+	if (hdr->writeCount >
+			(SUSAMUNE_MOD_STAGED_FILE_MAX_SIZE - codeEnd - footerSize) /
+			recordSize)
+	{
+		dbgprintf("Patch:Mod stage rejected: write count %u\r\n",
+			hdr->writeCount);
+		return NULL;
+	}
+	recordsEnd = codeEnd + hdr->writeCount * recordSize;
+	if (hdr->fileSize != recordsEnd + footerSize)
+	{
+		dbgprintf("Patch:Mod stage rejected: file size %X != %X\r\n",
+			hdr->fileSize, recordsEnd + footerSize);
+		return NULL;
+	}
+	if (hdr->fileSize > SUSAMUNE_MOD_STAGED_FILE_MAX_SIZE)
+	{
+		dbgprintf("Patch:Mod stage rejected: oversized file %X\r\n",
+			hdr->fileSize);
+		return NULL;
+	}
+
+	if (hdr->version == SUSAMUNE_MOD_VERSION_AUTH)
+	{
+		sync_before_read((void*)hdr, hdr->fileSize);
+		footer = (const u32*)((const u8*)hdr + recordsEnd);
+		if (SusamuneBytesCrc32(hdr, recordsEnd) != *footer)
+		{
+			dbgprintf("Patch:Mod stage rejected: CRC %08X != %08X\r\n",
+				SusamuneBytesCrc32(hdr, recordsEnd), *footer);
+			return NULL;
+		}
+	}
+	dbgprintf("Patch:Mod stage valid: game %08X base %08X code %X writes %u\r\n",
+		hdr->gameId, hdr->baseAddr, hdr->codeSize, hdr->writeCount);
+
+	return hdr;
 }
 
 static bool SusamuneShadowAssetValid(
@@ -4145,7 +4207,7 @@ static bool SusamuneShadowAssetValid(
 		asset->bmdSize == SUSAMUNE_GHOST_SHADOW_BMD_SIZE &&
 		asset->payloadChecksum == SUSAMUNE_GHOST_SHADOW_PAYLOAD_CRC32 &&
 		asset->reserved == 0 &&
-		SusamuneAssetCrc32(asset->payload,
+		SusamuneBytesCrc32(asset->payload,
 			SUSAMUNE_GHOST_SHADOW_BMD_SIZE +
 			SUSAMUNE_GHOST_SHADOW_BTK_SIZE) ==
 			SUSAMUNE_GHOST_SHADOW_PAYLOAD_CRC32;
@@ -4164,7 +4226,7 @@ static bool SusamunePiantaAssetValid(
 		asset->bmdSize == SUSAMUNE_GHOST_PIANTA_BMD_SIZE &&
 		asset->payloadChecksum == SUSAMUNE_GHOST_PIANTA_PAYLOAD_CRC32 &&
 		asset->reserved == 0 &&
-		SusamuneAssetCrc32(asset->payload,
+		SusamuneBytesCrc32(asset->payload,
 			SUSAMUNE_GHOST_PIANTA_BMD_SIZE) ==
 			SUSAMUNE_GHOST_PIANTA_PAYLOAD_CRC32;
 }
@@ -4199,6 +4261,11 @@ static void SusamunePreserveGhostModelAssets(
 		(struct SusamuneGhostPiantaAsset*)SUSAMUNE_GHOST_PIANTA_STAGING_PHYS_PTR;
 	void *shadowMaster = (void*)SUSAMUNE_GHOST_SHADOW_MASTER_PHYS_PTR;
 	void *piantaMaster = (void*)SUSAMUNE_GHOST_PIANTA_MASTER_PHYS_PTR;
+
+	if (GAME_ID != SUSAMUNE_MOD_GAME_ID_JP &&
+			GAME_ID != SUSAMUNE_MOD_GAME_ID_US &&
+			GAME_ID != SUSAMUNE_MOD_GAME_ID_PAL)
+		return;
 
 	// A larger future mod may own these bytes and must remain repeat-patchable.
 	if (hdr->fileSize > SUSAMUNE_GHOST_ASSET_VAULT_OFFSET)
@@ -4333,7 +4400,7 @@ static void PatchSusamuneGeckoCodes(u8 *codes, u32 size)
 // Inject the susamune mod into the freshly-loaded game image: copy its code
 // into the region reserved at the bottom of the game's root heap, then apply
 // the hook writes that ship with it (branches into the mod plus the raised
-// arena floor). Both come from the mod_<region>.bin the loader staged in MEM2
+// arena floor). Both come from the mod_<tag>.bin the loader staged in MEM2
 // -- the writes are version-specific, so they travel with the blob rather than
 // being compiled into the kernel.
 //
@@ -4344,14 +4411,59 @@ void PatchSusamune(void)
 	const struct SusamuneModHeader *hdr = SusamuneModStaged();
 	const u8 *code;
 	const u32 *writes;
-	u32 base, i;
+	u32 base, i, stride;
 
 	if (hdr == NULL)
 		return;
+	dbgprintf("Patch:Susamune DOL tuple %08X/%08X/%08X\r\n",
+		DOLSize, DOLMinOff, DOLMaxOff);
+	if (hdr->version == SUSAMUNE_MOD_VERSION_AUTH &&
+			GAME_ID == SUSAMUNE_MOD_GAME_ID_LMJ &&
+			(DOLSize != SUSAMUNE_MOD_DOL_SIZE_LMJ ||
+			 DOLMinOff != SUSAMUNE_MOD_DOL_MIN_LMJ ||
+			 DOLMaxOff != SUSAMUNE_MOD_DOL_MAX_LMJ))
+	{
+		dbgprintf("Patch:GLMJ01 DOL layout mismatch; diagnostic refused\r\n");
+		return;
+	}
 
 	code   = (const u8*)hdr + SUSAMUNE_MOD_HEADER_SIZE;
 	writes = (const u32*)(code + hdr->codeSize);
+	stride = hdr->version == SUSAMUNE_MOD_VERSION_AUTH ? 3u : 2u;
 	sync_before_read((void*)hdr, hdr->fileSize);
+
+	// V2 performs one complete read-only pass first. A wrong revision, another
+	// patch at either hook, or a damaged check record leaves no partial mod in
+	// MEM1 and no game instruction changed.
+	if (hdr->version == SUSAMUNE_MOD_VERSION_AUTH)
+	{
+		for (i = 0; i < hdr->writeCount; ++i)
+		{
+			u32 encoded = writes[i * stride];
+			u32 target = encoded & ~3u;
+			u32 flags = encoded & 3u;
+			u32 physical;
+			u32 observed;
+			if ((flags & ~SUSAMUNE_MOD_WRITE_FLAG_CHECK_ONLY) != 0 ||
+					target < 0x80003100u || target > 0x817FFFFCu)
+			{
+				dbgprintf("Patch:Invalid authenticated write 0x%08X\r\n",
+					encoded);
+				return;
+			}
+			physical = target & 0x7FFFFFFFu;
+			sync_before_read((void*)physical, 4);
+			observed = read32(physical);
+			dbgprintf("Patch:GLMJ preflight %08X got %08X expect %08X flags %u\r\n",
+				target, observed, writes[i * stride + 1], flags);
+			if (observed != writes[i * stride + 1])
+			{
+				dbgprintf("Patch:Preflight mismatch at 0x%08X; mod refused\r\n",
+					target);
+				return;
+			}
+		}
+	}
 
 	base = hdr->baseAddr & 0x7FFFFFFF;
 	memcpy((void*)base, code, hdr->codeSize);
@@ -4359,8 +4471,15 @@ void PatchSusamune(void)
 
 	for (i = 0; i < hdr->writeCount; ++i)
 	{
-		u32 addr = writes[i * 2] & 0x7FFFFFFF;
-		write32(addr, writes[i * 2 + 1]);
+		u32 encoded = writes[i * stride];
+		u32 addr;
+		u32 replacement;
+		if (hdr->version == SUSAMUNE_MOD_VERSION_AUTH &&
+				(encoded & SUSAMUNE_MOD_WRITE_FLAG_CHECK_ONLY) != 0)
+			continue;
+		addr = (encoded & ~3u) & 0x7FFFFFFFu;
+		replacement = writes[i * stride + stride - 1];
+		write32(addr, replacement);
 		sync_after_write((void*)addr, 4);
 	}
 

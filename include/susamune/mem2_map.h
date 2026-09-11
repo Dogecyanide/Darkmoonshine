@@ -20,9 +20,24 @@
 #define NIN_MEM2_DIMM_PPC_BASE               0x91400000u
 #define NIN_MEM2_DIMM_SIZE                   0x00300000u
 
+// GLMJ01 never enters Triforce mode. After DIinit clears DIMM, its otherwise
+// unused SegaBoot/DIMM region holds the LM archive mailbox and pack staging.
+// DI scratch, disc cache, and the immutable reset handoffs stay outside it.
+#define SUSAMUNE_LM_CACHE_PHYS_BASE          NIN_MEM2_SEGABOOT_PHYS_BASE
+#define SUSAMUNE_LM_CACHE_SIZE               0x00400000u
+#define SUSAMUNE_LM_MAILBOX_SIZE             0x00000400u
+#if IS_EMULATOR
+#define SUSAMUNE_LM_CACHE_PPC_BASE           0x71400000u
+#else
+#define SUSAMUNE_LM_CACHE_PPC_BASE           NIN_MEM2_SEGABOOT_PPC_BASE
+#endif
+
 #define NIN_MEM2_DI_SCRATCH_PHYS_BASE        0x11700000u
 #define NIN_MEM2_DI_SCRATCH_PPC_BASE         0x91700000u
 #define NIN_MEM2_DI_SCRATCH_SIZE             0x00080000u
+#if SUSAMUNE_LM_CACHE_PHYS_BASE + SUSAMUNE_LM_CACHE_SIZE != NIN_MEM2_DI_SCRATCH_PHYS_BASE
+#error "LM slot cache must stop before live DI scratch"
+#endif
 
 // Used only by the PPC loader before control passes to the game/kernel.
 #define NIN_MEM2_LOADER_DISC_PHYS_BASE       0x11780000u
@@ -45,7 +60,16 @@
 #define NIN_MEM2_FILE_PATCH_PPC_BASE         0x91900000u
 #define NIN_MEM2_FILE_PATCH_SIZE             0x0057F000u
 
-// mod_<region>.bin staging (struct SusamuneModHeader, mod_bin.h). The PPC
+// LM may cache packed slots only after the aligned live file-patch prefix.
+// ARM validates/publishes the actual suffix; the immutable staged mod is not
+// part of this pool. Dolphin has no file-patch handoff and uses its own pool.
+#define SUSAMUNE_LM_DOLPHIN_PACKED_PPC_BASE  0x71800000u
+#define SUSAMUNE_LM_PACKED_MAX_SIZE          NIN_MEM2_FILE_PATCH_SIZE
+#if SUSAMUNE_LM_DOLPHIN_PACKED_PPC_BASE + SUSAMUNE_LM_PACKED_MAX_SIZE > 0x72000000u
+#error "LM packed slots exceed Dolphin fake VMEM"
+#endif
+
+// mod_<tag>.bin staging (struct SusamuneModHeader, mod_bin.h). The PPC
 // loader reads the file for the detected disc here before booting the kernel;
 // PatchSusamune() copies the code out into MEM1. PatchGame can consume this
 // staging prefix again after an in-session reset, so it remains immutable.

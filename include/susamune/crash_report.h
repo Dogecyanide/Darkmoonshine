@@ -7,6 +7,59 @@
 #define SUSAMUNE_CRASH_VERSION            1u
 #define SUSAMUNE_CRASH_REPORT_SIZE        0x800u
 
+/* The second half of the crash mailbox survives while the PPC is wedged. */
+#define SUSAMUNE_PHASE_TRACE_MAGIC        0x53504853u  /* 'SPHS' */
+#define SUSAMUNE_PHASE_TRACE_OFFSET       SUSAMUNE_CRASH_REPORT_SIZE
+#define SUSAMUNE_PHASE_TRACE_SIZE         0x20u
+
+#define SUSAMUNE_PHASE_ACTION_SAVE        1u
+#define SUSAMUNE_PHASE_ACTION_LOAD        2u
+#define SUSAMUNE_PHASE_ACTION_POST_LOAD   3u
+#define SUSAMUNE_PHASE_ACTION_WARP        4u
+
+#define SUSAMUNE_LM_WARP_REQUEST          0x01u
+#define SUSAMUNE_LM_WARP_ACCEPT           0x02u
+#define SUSAMUNE_LM_WARP_DISPATCH         0x10u
+#define SUSAMUNE_LM_WARP_APPEARANCE       0x20u
+#define SUSAMUNE_LM_WARP_PREPARED         0x21u
+#define SUSAMUNE_LM_WARP_SETTLING         0x30u
+#define SUSAMUNE_LM_WARP_ARRIVED          0x7Fu
+#define SUSAMUNE_LM_WARP_REJECT           0xD0u
+#define SUSAMUNE_LM_EVENT_WARP            0x120u
+
+/* A load phase with this flag is an LM epoch-mismatch diagnostic.  The low
+ * 22 bits form a complete mismatch mask, bits 22-29 retain the guarded
+ * cross-room stage, and arg0/arg1 hold the saved and live values for the
+ * lowest-priority-numbered mismatch.  Guard 0 is a legacy/generic epoch
+ * reject; 1-8 are fail-closed guard stages and A0 means the guard passed
+ * before a later compatibility check rejected the load. */
+#define SUSAMUNE_LM_EPOCH_PHASE_FLAG      0x80000000u
+#define SUSAMUNE_LM_EPOCH_GUARD_SHIFT     22u
+#define SUSAMUNE_LM_EPOCH_GUARD_MASK      0x3FC00000u
+#define SUSAMUNE_LM_EPOCH_MAP_VALUE       (1u << 0)
+#define SUSAMUNE_LM_EPOCH_SCENE_VALUE     (1u << 1)
+#define SUSAMUNE_LM_EPOCH_CURRENT_SCENE   (1u << 2)
+#define SUSAMUNE_LM_EPOCH_PENDING_SCENE   (1u << 3)
+#define SUSAMUNE_LM_EPOCH_LOOP_MODE       (1u << 4)
+#define SUSAMUNE_LM_EPOCH_AUDIO_SCENE     (1u << 5)
+#define SUSAMUNE_LM_EPOCH_MAP_ARCHIVE     (1u << 6)
+#define SUSAMUNE_LM_EPOCH_VOLUME_COUNT    (1u << 7)
+#define SUSAMUNE_LM_EPOCH_VOLUME_HEAD     (1u << 8)
+#define SUSAMUNE_LM_EPOCH_VOLUME_TAIL     (1u << 9)
+#define SUSAMUNE_LM_EPOCH_MISSION_MODE    (1u << 10)
+#define SUSAMUNE_LM_EPOCH_GAME_MODE       (1u << 11)
+#define SUSAMUNE_LM_EPOCH_SIMPLE_MODELER  (1u << 12)
+#define SUSAMUNE_LM_EPOCH_MAP_COL         (1u << 13)
+#define SUSAMUNE_LM_EPOCH_EN_TYPES        (1u << 14)
+#define SUSAMUNE_LM_EPOCH_GAME_HEAP       (1u << 15)
+#define SUSAMUNE_LM_EPOCH_GAME_HEAP_START (1u << 16)
+#define SUSAMUNE_LM_EPOCH_GAME_HEAP_END   (1u << 17)
+#define SUSAMUNE_LM_EPOCH_ROOT_HEAP       (1u << 18)
+#define SUSAMUNE_LM_EPOCH_SYSTEM_HEAP     (1u << 19)
+#define SUSAMUNE_LM_EPOCH_AUDIO_BASIC     (1u << 20)
+#define SUSAMUNE_LM_EPOCH_DRAW_STATE      (1u << 21)
+#define SUSAMUNE_LM_EPOCH_MASK            0x003FFFFFu
+
 #define SUSAMUNE_CRASH_STATE_DISABLED     0u
 #define SUSAMUNE_CRASH_STATE_ARMED        1u
 #define SUSAMUNE_CRASH_STATE_WRITING      2u
@@ -17,6 +70,7 @@
 #define SUSAMUNE_CRASH_FLAG_LR_WINDOW     (1u << 2)
 #define SUSAMUNE_CRASH_FLAG_DIRECTOR      (1u << 3)
 #define SUSAMUNE_CRASH_FLAG_MARIO         (1u << 4)
+#define SUSAMUNE_CRASH_FLAG_LM_EFFECT     (1u << 5)
 
 #define SUSAMUNE_CRASH_BREADCRUMB_COUNT   16u
 #define SUSAMUNE_CRASH_BACKTRACE_COUNT    32u
@@ -42,6 +96,17 @@ struct SusamuneCrashBreadcrumb {
 struct SusamuneCrashFrame {
     unsigned int stackPointer;
     unsigned int returnAddress;
+};
+
+struct SusamunePhaseTrace {
+    unsigned int magic;
+    unsigned int sequenceBegin;
+    unsigned int action;
+    unsigned int phase;
+    unsigned int phaseInverse;
+    unsigned int arg0;
+    unsigned int arg1;
+    unsigned int sequenceEnd;
 };
 
 struct SusamuneCrashReport {
@@ -127,6 +192,12 @@ struct SusamuneCrashReport {
     ((struct SusamuneCrashReport *)SUSAMUNE_MEM2_CRASH_PPC_BASE)
 #define SUSAMUNE_CRASH_PHYS_PTR \
     ((struct SusamuneCrashReport *)SUSAMUNE_MEM2_CRASH_PHYS_BASE)
+#define SUSAMUNE_PHASE_TRACE_PPC_PTR \
+    ((struct SusamunePhaseTrace *)(SUSAMUNE_MEM2_CRASH_PPC_BASE + \
+                                  SUSAMUNE_PHASE_TRACE_OFFSET))
+#define SUSAMUNE_PHASE_TRACE_PHYS_PTR \
+    ((struct SusamunePhaseTrace *)(SUSAMUNE_MEM2_CRASH_PHYS_BASE + \
+                                  SUSAMUNE_PHASE_TRACE_OFFSET))
 
 typedef char susamune_crash_header_line_check[
     (__builtin_offsetof(struct SusamuneCrashReport, modCodeSize) == 32) ? 1 : -1];
@@ -134,7 +205,10 @@ typedef char susamune_crash_gpr_check[
     (__builtin_offsetof(struct SusamuneCrashReport, gpr) == 64) ? 1 : -1];
 typedef char susamune_crash_size_check[
     (sizeof(struct SusamuneCrashReport) == SUSAMUNE_CRASH_REPORT_SIZE) ? 1 : -1];
+typedef char susamune_phase_trace_size_check[
+    (sizeof(struct SusamunePhaseTrace) == SUSAMUNE_PHASE_TRACE_SIZE) ? 1 : -1];
 typedef char susamune_crash_mailbox_check[
-    (sizeof(struct SusamuneCrashReport) <= SUSAMUNE_MEM2_CRASH_SIZE) ? 1 : -1];
+    (SUSAMUNE_PHASE_TRACE_OFFSET + sizeof(struct SusamunePhaseTrace) <=
+     SUSAMUNE_MEM2_CRASH_SIZE) ? 1 : -1];
 
 #endif /* SUSAMUNE_CRASH_REPORT_H */

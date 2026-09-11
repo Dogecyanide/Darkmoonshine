@@ -8,44 +8,49 @@
     "configurePresets": [
         {
             "name": "release_console",
-            "displayName": "Release build (Console)",
+            "displayName": "DarkMoonshine release launcher",
             "generator": "Ninja",
             "binaryDir": "${sourceDir}/build",
             "cacheVariables": {
-                "VERS": "jp;us;pal"
-            },
-            "hidden": false
-        },
-        {
-            "name": "release_emu",
-            "displayName": "Release build (Dolphin)",
-            "generator": "Ninja",
-            "binaryDir": "${sourceDir}/build",
-            "cacheVariables": {
-                "IS_EMULATOR": "ON"
+                "LM_BOOTSTRAP": "ON",
+                "LM_DIAGNOSTIC": "ON",
+                "LAUNCHER_VERSION": "V1.0.0 Frozen in Time"
             },
             "hidden": false
         },
         {
             "name": "dev_console",
-            "displayName": "Dev build (Console)",
+            "displayName": "GLMJ01 bootstrap launcher (development)",
             "generator": "Ninja",
             "binaryDir": "${sourceDir}/build",
             "cacheVariables": {
-                "ENABLE_DEBUG_WARPS": "ON",
-                "ENABLE_SAVESTATE_DBG": "ON",
+                "LM_BOOTSTRAP": "ON",
                 "LAUNCHER_DEFAULT_SOURCE": "sd"
             },
             "hidden": false
         },
         {
-            "name": "dev_emu",
-            "displayName": "Dev build (Emulator)",
+            "name": "diagnostic_console",
+            "displayName": "DarkMoonshine full practice launcher",
             "generator": "Ninja",
-            "binaryDir": "${sourceDir}/build",
+            "binaryDir": "${sourceDir}/build-lm-diag",
             "cacheVariables": {
-                "IS_EMULATOR": "ON",
-                "ENABLE_SAVESTATE_DBG": "ON"
+                "LM_BOOTSTRAP": "ON",
+                "LM_DIAGNOSTIC": "ON",
+                "LAUNCHER_VERSION": "V1.0.0 Frozen in Time"
+            },
+            "hidden": false
+        },
+        {
+            "name": "diagnostic_emulator",
+            "displayName": "GLMJ01 Dolphin development ISO/BPS",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build-lm-emu",
+            "cacheVariables": {
+                "LM_BOOTSTRAP": "ON",
+                "LM_DIAGNOSTIC": "ON",
+                "LM_EMULATOR": "ON",
+                "LAUNCHER_VERSION": "V1.0.0 Frozen in Time"
             },
             "hidden": false
         }
@@ -60,20 +65,18 @@
             ]
         },
         {
-            "name": "emu_iso",
+            "name": "diagnostic",
             "hidden": false,
-            "configurePreset": "release_emu",
+            "configurePreset": "diagnostic_console",
             "targets": [
-                "iso"
+                "launcher"
             ]
         },
         {
-            "name": "emu_patches",
+            "name": "emulator",
             "hidden": false,
-            "configurePreset": "release_emu",
-            "targets": [
-                "emulator_patches"
-            ]
+            "configurePreset": "diagnostic_emulator",
+            "targets": ["lm_emulator"]
         }
     ]
 }

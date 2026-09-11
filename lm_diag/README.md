@@ -1,0 +1,535 @@
+# DarkMoonshine GLMJ01 payload
+
+Current release: **V1.0.0 Frozen in Time**, snapshot format **28**.
+Authors: **Dogecyanide, Nintendont Team**.
+
+Dogecyanide reports that all ten RC4 Wii checklist items worked. V1.0.0 uses
+that gameplay implementation with final branding; the report is not a new
+hardware run of the final binary or a universal mansion/boss compatibility
+claim. See the [release notes](../doc/darkmoonshine-1.0.0.md) and
+[current priorities](../doc/lm-current-priorities.md).
+
+The Japanese `GLMJ01` revision-0 payload reserves the Moonshine 512 KiB MEM1
+window at `0x804B8400-0x80538400`. The launcher validates the clean DOL layout
+and every hook word before injection; another executable revision is not
+patched. The original ISO remains unchanged.
+
+The normal HUD uses brief top-left action notices, not the former memory
+panel/checkerboard. Text uses the retail `JUTDirectPrint` renderer on the
+completed 640×480 YUYV framebuffer; optional timer/input overlays use bounded,
+heapless framebuffer drawing. Background heap checks, refusal details and
+diagnostic journals remain active. Optional overlays are suppressed during
+native single-buffer presentations to avoid drawing into active scanout.
+
+## Release feature and storage contract
+
+- One complete RAM state, named SD export/import/browser/rename/deletion,
+  supported cross-room/floor and post-warp loads, and guarded reboot reuse.
+- A 68-entry room/boss warp list, native room reset/clear recipes, recordable
+  Reset Room combo, and the existing game/door/audio practice pages.
+- Sunshine-style timer/Creation, native-menu counting preference, Moonshine
+  controller display, speed/position/angle metadata, lag and R-pump counters,
+  input reference timing, and Luigi shirt/cap colour.
+- Persistent Wii preferences in `moonshine_lm.ini`; the mod menu does not
+  pause gameplay or its active timer. Genuine scripted timer stops and the
+  native 36-counted-minute rollover remain.
+- Bounded LZ4 shared-companion/rollback compression with denser Deflate
+  fallback, using the unchanged `0x50000` codec workspace. Table CRCs preserve
+  the same checksum results and every validation pass. The raw core remains
+  raw; shared staging/rollback storage is not a second RAM slot.
+
+The timer's generated artwork retains its Super Mario Sunshine provenance;
+the supplied launcher theme and inherited third-party notices are preserved.
+
+Fresh exports say `REBOOT READY` only when the durable SD key, build/setup and
+retained-owner profile are available; otherwise they are `THIS BOOT ONLY`.
+Import fills the RAM slot; Load restores gameplay. The Secret Altar unmatched
+event-resource refusal remains. There is no raw SYS/OS/audio/GX rewind, no
+universal boss-state guarantee, and no automatic trick-success detector.
+Dojo, Boss Rush and Portrait Rush are deferred.
+
+Make **fresh final-release archives**: format 28 is unchanged from RC4, but
+final branding changes the authenticated build identity. Old archives are
+not converted by renaming. Existing SD app/settings/state/log paths stay
+unchanged. See the [storage contract](../doc/lm-state-storage.md),
+[retained-owner proof](../doc/lm-persistent-owner-proof.md), and
+[compression benchmark](../doc/lm-compression-benchmark.md).
+
+## Controls and diagnostics
+
+D-pad Left saves, Right loads, and Down opens the practice menu in stable
+gameplay. Stick/D-pad chooses categories, A enters/applies, and B returns or
+closes. Page-specific hints cover L/R navigation, adjustment, editors, naming
+and confirmation. Closing a changed menu queues preferences for storage;
+wait for the saved acknowledgement before powering off.
+
+The popup reports Saving/Saved and Loading/Loaded or Busy/Rejected, then
+clears. Refused actions are not queued for surprise execution. Collect the
+entire `lm_dumps` folder and available `luigis_mansion_crash_a/b.bin` and
+`.txt` reports after a fault. Eight rotating attempt journals are diagnostic
+histories, not eight savestate payloads. Keep authentication keys private.
+
+[The current runner checklist](../doc/lm-testing-current.md) is packaged as
+`TESTING.md`. The following material is retained diagnostic history, not
+additional release tests or the current on-screen UI.
+
+## Historical diagnostic reference
+
+While status is BUSY, `G:` retains the rejected action's cause/value rather
+than the next frame's live gate. The safety checks still run on each request;
+refused actions are not queued for an unexpected later execution.
+
+The following panel format is historical (.44 and earlier), not the release HUD.
+Its expanded Z view is removed; the SD journal still retains the refusal data:
+
+```text
+E:<first epoch field> M<mismatch mask> <saved value>><live value>
+V:<topology> S<saved count>>L<live count> -<removed> +<added> F<save>/<live fault>
+V-<archive name> <object>/<backing owner> O<object> R<RARC> <size bytes>
+V-<archive name> <object>/<backing owner> O<object> R<RARC> <size bytes>
+V-<archive name> <object>/<backing owner> O<object> R<RARC> <size bytes>
+V+<archive name> <object>/<backing owner> O<object> R<RARC> <size bytes>
+V+<archive name> <object>/<backing owner> O<object> R<RARC> <size bytes>
+V+<archive name> <object>/<backing owner> O<object> R<RARC> <size bytes>
+VR O<object reuse mask> R<RARC reuse mask>
+VC <saved current volume>><live current volume> D<saved dir>><live dir>
+RM F<save/live fault> A<active mask> R<record mask> L<layout> G<map> K<backing> M<marks>
+RA <slot>:<saved active ID>><live active ID> <slot>:<saved ID>><live ID>
+RW <saved/live wanted count> -<removed> +<added> Q<sequence change> <first removed>><first added>
+MM F<save/live fault> N<changed indices> P<saved/live primary hash> R<saved/live registry hash>
+M<index><P/R/B> <name> S<saved/live state> H<saved/live handle> R<saved/live parsed root>
+```
+
+`WAIT` means that the relevant heap has not existed long enough to test.
+`OK` means the condition has been observed and remains valid. `BAD` is latched
+after a real floor, canary, or `JKRExpHeap::check` failure; a normal room-load
+gap does not turn the heap check bad.
+
+The final `X` byte is the guarded cross-room decision breadcrumb. It remains
+`X00` until a mismatched load reaches that path and becomes `XA0` when every
+guard accepts it. `X01` through `X08` identify the check that refused the load:
+
+```text
+X01 epoch mask       X02 census generation  X03 volume census
+X04 list topology    X05 archive ownership  X06 room streamer
+X07 model census     X08 model shape         XA0 accepted
+```
+
+Diagnostic packages also force Nintendont's `/ndebug.log` on the game-source
+device (the SD card for the current `path_jp=sd:` setup). It records payload
+validation, the observed DOL tuple, every preflight word, and successful hook
+installation, giving an independent answer if the capture contains no
+checkerboard. Full-state builds also append cache-coherent `Susamune: phase`
+records while saving, loading, and traversing the restored-frame trace window.
+The ARM writes and syncs these independently, so the last record survives a
+PowerPC hard lock that never reaches the exception dumper.
+
+Starting with `0.3.27`, an epoch record also embeds that `X` stage in otherwise
+unused phase bits. `/ndebug.log` and `scripts/read_lm_dump.py` therefore retain
+the exact guard that refused a load even if no HUD screenshot is available.
+
+Starting with `0.3.25`, a valid GLMJ diagnostic boot also creates `/lm_dumps`
+on the launcher's storage device. The initial two banks expanded in .41 to
+eight: `lm_attempt_a.bin` through `lm_attempt_h.bin`, rotating on successful
+saves. Each contains a 32-byte generation/build header
+followed by the exact 32-byte phase records observed after that save; no heap or
+MEM2 snapshot bytes are duplicated. Every accepted record is synced while no
+asynchronous DI read is active. A half-created generation is ignored unless its
+header and first save-complete record agree, leaving prior valid banks recoverable.
+
+GLMJ crash captures use `/luigis_mansion_crash_a.bin` and
+`/luigis_mansion_crash_b.bin`, with matching `.txt` reports whose heading also
+names Luigi's Mansion. The inherited Sunshine path keeps its existing generic
+filenames, so testers can retain reports from both games without ambiguity.
+
+Version `0.3.9` additionally captures GLMJ01's standalone `0x270`-byte
+camera/viewport state block at `0x80398770-0x803989E0`. The normal-room draw
+path reads its projection, viewport, scissor, and matrix fields directly. The
+following display object is deliberately excluded because it owns live
+double-buffer pointers.
+
+For `0.3.10`, `80` means the load returned at the true post-presenter boundary.
+The immediate main-loop tail is bracketed by `90/91`, `92/93`, and `94/95`;
+the next update uses `88/89`, `8A/8B`, optionally `8C/8D`, and `8E/8F`.
+`81` through `86` bracket the following complete presenter, diagnostic copy,
+and tick. This repeats for eight restored presentations and retains the loop
+tail/update that follows the eighth. For loop markers, `arg0` is the number of
+restored presentations already completed; for `81` through `86`, it is the
+one-based presentation ordinal (`80` uses zero). The ARM logger may miss fast
+intermediate values, but an entry value remains the final record when its
+corresponding retail call hard-locks.
+
+Inside `8A/8B`, `A0/A1` bracket the first position-matrix upload, `A2/A3`
+bracket the final normal-matrix upload, `A4/A5` bracket the active scene's
+draw callback, and `A6/A7` bracket the final orthographic-view reset. A last
+`A1` therefore means one of the intervening matrix uploads stalled; a last
+`A4` identifies the scene draw callback itself. In `0.3.9`, `A4/A5` record the
+main draw state in `arg0` and callback address in `arg1`. `B0/B1` bracket each
+direct call in the Main Game draw dispatcher, while `C0/C1` bracket every
+direct call in its normal-room renderer. For those records, `arg0` is the
+retail call site and `arg1` is its original callee; a final `B0` or `C0`
+therefore identifies the exact call that did not return.
+
+Version `0.3.10` adds `D0/D1` around every direct call inside the central
+per-view routine at `0x8000BA64`, which `0.3.9` isolated. These records use the
+same `arg0` call-site and `arg1` callee convention.
+
+Those high-volume `B0/C0/D0/E0/F2` probe families were temporary diagnostic
+instrumentation. Version `0.3.26` removes them after the final `0.3.25` journal
+identified the stale scene-effect manager; the coarse restored-frame,
+presenter, audio-tail, loop, transition, and attempt-journal markers remain.
+
+Version `0.3.11` captures the adjacent grain-effect managers at
+`0x803CBAF0-0x803CC460`. Their circular-list sentinels are static while their
+nodes live in the gameplay heap, so both sides of each list now rewind as one
+timeline.
+
+Version `0.3.12` leaves all restore gates intact and diagnoses a preflight
+`EPOCH` refusal precisely. The `E:` tag is the highest-priority differing
+field; `M` is a complete 22-bit mismatch mask; and the last two words are that
+field's saved and live values. The same record is written to `/ndebug.log` as
+`Susamune: epoch ...`, so it survives even when the overlay cannot be read.
+Mask bits from low to high are:
+
+```text
+00 MAPV  01 SCNV  02 SCNP  03 PEND  04 LOOP  05 AUDS  06 MARC
+07 VOLN  08 VOLH  09 VOLT  10 MISS  11 GMOD  12 SIMP  13 MCOL
+14 ENTY  15 HEAP  16 HBEG  17 HEND  18 ROOT  19 SYSP  20 AUDO
+21 DRAW
+```
+
+`VOLH`, `VOLT`, and `VOLN` are the mounted-volume list head, tail, and count.
+Matching list endpoints are only coarse sentinels: they do not prove that
+interior resource or allocator nodes are unchanged. A future relaxation needs
+a full member census rather than relying on this row alone.
+
+Version `0.3.13` adds that read-only census without relaxing the gate. It
+validates at most 32 complete `JKRFileLoader` links, rereads the list header to
+reject a concurrent change, copies each volume name into mod-owned memory, and
+records the GLMJ `JKRMemArchive` object and RARC backing metadata. `HEAD1`,
+`HEAD2`, or `HEADN` means the complete live list is exactly the saved list with
+that many leading members absent; `ORDER` means surviving members retain their
+relative order but the change is not a pure head removal; `MIX` means even the
+common order changed. `SBAD` or `LBAD` means the bounded traversal refused an
+invalid saved or live list. Owner letters are `G`ame, `S`ystem, `R`oot, or `?`.
+`O` is the archive object's recorded allocator (falling back to its address
+range); `B` is the heap range that actually contains the validated RARC bytes.
+The `Fsave/live` values are zero for valid censuses. Nonzero faults are:
+
+```text
+1 capacity  2 empty/header  3 endpoint  4 node  5 parent list  6 object
+7 embedded link  8 previous link  9 duplicate  10 tail  11 end  12 changed
+```
+
+Version `0.3.14` reserved separate rows for the first three removed and first
+three added archives, adds each archive object's RARC header and size, and
+reports object/RARC allocation reuse. It also captures a generation-keyed,
+read-only census of LM's seven-slot streamed room-archive manager. `A` and `R`
+are seven-bit slot mismatch masks; `L` and `G` report manager-layout and room
+map changes; `K` flags fixed backing-pointer invariant failures; and `M` shows
+transient reconcile marks. `RA` identifies the first two changed active slots,
+while `RW` compares the bounded wanted-room set and flags any exact ordered
+sequence change with `Q`. This room manager is separate from the model-archive owners named by the
+`V` rows. Resource faults are:
+
+```text
+1 slot count  2 wanted capacity  3 record range  4 bulk range  5 slot size
+```
+
+The same version also took a generation-keyed, read-only census of the two
+262-entry model-resource tables at `0x803435AC-0x80346AE4` and
+`0x8037EC70-0x80382DF0`. Those tables own the lifecycle state behind model
+archives such as `tenjyo`, `bat`, `rat`, and `door`; they are distinct from the
+seven-slot `RM` room streamer. `MM` gives the saved/live census faults, the
+number of model indices whose complete entries changed, and whole-table hashes.
+The next four rows identify the first changes by model name. `P`, `R`, and `B`
+mean the primary descriptor, secondary registry, or both changed. On `P`/`B`
+rows, state values are `0` unloaded, `1` load pending, `2` cancel pending, and
+`3` loaded/parsed. `H` is the low 25 bits of its archive/load handle and `R` is
+the low 25 bits of its parsed model root; that preserves every variable bit of
+a MEM1 address. Names are capped at eight characters. A registry-only row instead shows
+its full archive-pointer pair followed by complete entry hashes. Model fault `1` means a table
+changed while the bounded copy was being verified. No model table is restored
+and no epoch gate was relaxed in that diagnostic build.
+
+Version `0.3.18` keeps the aggressive cross-room raw-rewind attempt from
+`0.3.17`. It adds one-pass tracing around every direct call in `MAIN GAME`'s
+update routine. Both initial `0.3.17` cross-room tests completed the restore
+and then hard-locked inside that routine before the next framebuffer was
+presented; the final `E0`/`E1` journal record now gives the precise callsite
+and retail target responsible. The snapshot includes the fixed state identified
+by the `0.3.14` captures:
+
+```text
+803435AC-80346AE4  primary model descriptors
+8037EC70-80382DF0  secondary model registry
+803C86A0-803C97C4  primary model output arrays
+803E3088-803E3CF8  secondary model output arrays
+80398C50-80398FC8  room map, slots, backing pointers, marks, and wanted IDs
+80494754-80494760  mounted-volume list header
+804A2038-804A203C  current mounted volume
+804A2040-804A2044  current directory ID
+```
+
+Version `0.3.19` adds the camera sources which regenerate the already-captured
+renderer block every frame:
+
+```text
+80398BF8-80398C50  active viewport and per-view camera descriptors
+80399B60-80399C60  camera parameter, view-pointer, control, and vector state
+```
+
+The three persistent `0xEC`-byte camera-view objects normally live inside the
+gameplay heap and are therefore already covered. A fixed `0x300`-byte sidecar
+records their identities and captures any object found outside that heap; load
+requires every live pointer to remain identical before restoring such an
+object.
+
+Version `0.3.21` replaces the broad `0.3.20` fade/wipe copy with the two
+audited scalar islands `803985D4-803985E8` and `80398764-80398770`. The
+excluded middle is an embedded `J2DPicture` with live tree, texture, palette,
+and GX-facing state. This version also captures the fixed JPA emitter manager
+at `803CD4FC-803CE0F0`; its intrusive-list anchors and counters must rewind
+with the emitter and particle pools already covered by the gameplay-heap
+snapshot. A `0.3.20` foyer failure stopped in that manager's update with a
+future pending count paired to restored list nodes. Together with the earlier
+ranges, the static payload is `0x13AE4` bytes and the aligned game-heap payload
+begins at snapshot offset `0x13F40`. Snapshot format version 10 prevents an
+older MEM2 slot from being mistaken for this layout. `G:PTCL` refuses state
+capture if any pool is outside that heap, a fixed sentinel drifts, or a pool
+capacity/count is implausible.
+
+Version `0.3.22` adds GLMJ01's fixed transient animated-model owner registry
+at `803C26C8-803C2D94`. Its 15 owner rows point into an 80-slot model pool in
+the gameplay heap, so restoring only the heap can leave future cleanup owning
+saved slots. The registry now rewinds with those slots. Before the retail
+pool update runs, one guard retires an active slot only when its companion
+controller mapping is broken. A second, targeted guard skips an unsafe
+model-controller update without permanently dropping an otherwise recoverable
+effect. This prevents the retail update from dereferencing a null model
+descriptor. Together with the earlier ranges, the static payload is `0x141B0`
+bytes, the camera-object sidecar begins at `0x142F8`, and the aligned game-heap
+payload begins at `0x14600`. Snapshot format version 11 prevents an older MEM2
+slot from being mistaken for this layout.
+
+Version `0.3.23` advances the snapshot to format 12 and captures the remaining
+fixed room-transition ownership state that must agree with the rewound gameplay
+heap:
+
+```text
+80399510-80399B30  door lookup maps, transition banks, and heap bank pointers
+803C2E10-803C3030  room and door visibility masks
+803C7CA0-803C8428  complete room event/text interpreter and request
+803C8490-803C8690  128-entry room actor pointer table
+```
+
+The event/text range replaces the old flags-only slice rather than duplicating
+it. The room actor count is already inside captured SBSS, so its 128-entry
+pointer table now rewinds with the same count. Together with the earlier
+ranges, the static payload is `0x15358` bytes, the camera-object sidecar begins
+at `0x154A0`, and the aligned game-heap payload begins at `0x157A0`. Snapshot
+format version 12 prevents an older MEM2 slot from being mistaken for this
+layout.
+
+Version `0.3.24` advances the snapshot to format 13 and captures the
+pointer-free active-event bitmap at `803C20C8-803C2138`. LM's heap event
+objects and their mounted event archives already rewind, but this 112-byte
+fixed map previously remained in the destination room. That split can make a
+saved foyer event appear active and start its cutscene before Luigi reaches
+the door. The static payload is now `0x153C8` bytes, the camera-object sidecar
+begins at `0x15510`, and the aligned game-heap payload begins at `0x15820`.
+
+This build also closes an I/O race without snapshotting any SDK object. LM
+decrements its public DVD outstanding count before the primary worker runs its
+internal and user callbacks. Save and load now require both original DVD
+workers to be waiting on structurally valid empty message queues, and repeat
+that proof after the scheduler is frozen. On an accepted cross-room restore,
+completed-request buffer/archive/callback pointers are cleared from the 64
+transport records and their circular cursor is reset coherently. DVD command
+blocks, per-request message queues, worker threads, stacks, queues, and the
+secondary worker callback remain live and are never copied or reconstructed.
+
+Same-room loads still require an exact epoch match. The experimental
+cross-room exception requires the epoch mismatch mask to be exactly
+`M00000180`: only mounted-volume count and head may differ; the list tail and
+all other identity fields must remain exact. It then requires a valid
+generation-matched census, an exact ordered common-list subsequence with no
+more than four total removals/additions at arbitrary list positions,
+captured game-heap ranges for every changed archive object and RARC backing,
+stable current-volume/directory values, valid room-manager layout and backing
+pointers with no queued resource request, and at most four model changes with
+no load/cancel-pending state. A failed condition keeps
+the existing clean `EPOCH` refusal.
+
+For an accepted load, the implementation rewinds the gameplay heap and the
+fixed tables as one raw snapshot. It then reconstructs every saved mounted
+volume node's object, parent-list, previous, and next fields from the protected
+save-time census and stores the repaired links before resuming. It deliberately
+does not call archive unload/load or room-resource reconcile functions. Both
+the GX vertex cache and texture cache are invalidated after the restored bytes
+are made coherent.
+
+If the inner game loop exits during that window, `96/97` identify loop
+entry/return, `98/99` bracket outer cleanup, and `9A/9B` bracket its restart.
+The invocation containing the load can only emit `97` because tracing was not
+armed at its entry. A final `97` isolates the following scene-table virtual
+call.
+
+For the `0.3.24` hardware pass, first make a new version-13 state. Confirm one
+same-room restore, then use this exact cross-room sequence: save outside the
+intended foyer door, enter it and wait until Luigi is controllable, load back
+outside, then touch that same door again. Report separately whether the second
+door animation and the following room load complete, and whether the foyer
+cutscene still starts early. `G:DVD1` or `G:DVD2` is a deliberate refusal
+because a DVD worker was not fully quiescent; wait a moment and try again.
+Detailed tracing covers
+the first eight restored presentations. It then becomes a low-rate two-minute
+tail; an A-button edge just before `MAIN GAME` update opens a 240-presentation
+watch and enables the existing `E0/E1` wrappers for the initiating update.
+During that watch, changes to the map/scene, pending or exiting loop state,
+DVD/ARAM activity, wanted-resource count, or mounted-volume tail/count enable
+the wrappers for two more updates. The armed trace remains active through the
+complete presentation and loop tail. `E2/E3` bracket the fade-controller helper
+and `F0/F1` bracket the only non-trivial following audio callback; the retail
+`0x80186868` no-op remains unwrapped. The existing draw/presenter milestones
+remain visible. `E4` records a ten-bit transition-watch change mask; `E5`
+records the old/new values for its lowest changed bit. A successful save during
+the tail restarts its two-minute deadline and transition baseline. After a hard
+lock or reboot, preserve `/ndebug.log`. `87` is the tail start and its 300-frame
+heartbeat; heartbeats pause during the door watch.
+
+Version `0.3.25` advances the snapshot to format 14 and adds the fixed
+scene-effect controller range `803CE0F0-803CEB00`. The range owns list
+sentinels, pointer vectors, and active counts whose linked objects live in the
+gameplay heap. It stops before CEB00's destructor records and CEBA0's
+asynchronous object and `OSMessageQueue`. The static payload is now `0x15DD8`
+bytes, the camera-object sidecar begins at `0x15F20`, and the aligned gameplay
+heap begins at `0x16220`.
+
+The two-minute tail now arms exact tracing for the current and following update
+whenever either main stick axis exceeds 24 raw units or any button changes.
+`E6` records raw stick X
+in bits 31-24, raw stick Y in bits 23-16, the button mask in bits 15-0, and the
+post-load frame number in `arg1`. Existing `E0/E1` records now also split the
+effect-controller and downstream effect-list calls that wake when walking
+creates dust or another room effect. `F2/F3` bracket each room-actor update;
+`arg0` packs its pass in the high half and restored actor-table index in the low
+half (`FFFF` means not found). On entry (`F2`), `arg1` is the actor pointer; on
+return (`F3`), it is the actor's vtable. These markers target the delayed
+movement failure seen only after otherwise successful room rewinds.
+
+Version `0.3.26` advances the snapshot to format 15 and captures the adjacent
+scene-effect manager at `803CD1F4-803CD4C8`. The terminal `0.3.25` attempt
+journal stopped inside `fn_80155118`, called at `80156AF0` with that manager as
+its object; the function reads its `+0x244`, `+0x248`, and `+0x250` list state
+after walking resumes. The static payload is now `0x160AC` bytes, the
+camera-object sidecar begins at `0x161F4`, and the aligned gameplay heap begins
+at `0x16500`.
+
+The two 30,412-byte model censuses no longer occupy the injected MEM1 image.
+The saved view aliases the checksum-protected model tables already packed in
+the snapshot, while a coherent live copy and five saved metadata words reserve
+`0x76E0` bytes at the high end of the MEM2 slot. Before a saved census is
+published, its packed table hashes must match the coherent live capture. This
+and removal of 144 resolved call probes reduce the payload from 140,952 to
+46,104 bytes; 21 authenticated write hooks remain, including both targeted
+animated-model safety/repair hooks, the HUD, crash capture, and journal spine.
+
+The ordered cross-room guard can now retain up to eight removed and eight added
+archive indices and sixteen corresponding model changes. This only removes the
+old diagnostic-capacity refusal: all existing list-order, archive ownership,
+room-streamer, pending-I/O, model-state, and exact-match predicates remain
+fail-closed.
+
+Version `0.3.27` keeps snapshot format 15. It broadens the first epoch gate from
+exact `COUNT|HEAD` drift to any nonzero subset of those two fields, and allows
+the ordered topology proof to handle pure archive additions or removals. The
+unchanged tail/current loader context, game-heap archive ownership, idle room
+streamer, and exact model linkage remain mandatory. The normal HUD is reduced
+to two rows; the full census panel appears only on `EPOCH`. Obsolete free-space
+polling and minimum tracking are removed while periodic `JKRExpHeap::check`
+calls remain, reducing the injected payload from 46,104 to 45,272 bytes.
+
+Version `0.3.28` advances the snapshot to format 16 and captures the complete
+room-name presenter owner at `803C4628-803C4718`: ten adjacent 0x18-byte
+wrappers whose picture objects are allocated from the live heap. The terminal
+`0.3.27` report proves the three-room load completed, every heap remained
+healthy, and gameplay ran for about 4.88 seconds before the destination-era
+owner tried to delete a picture at a saved-era heap address. The static payload
+is now `0x1619C` bytes, the camera-object sidecar begins at `0x162E4`, and the
+aligned gameplay heap begins at `0x16600`. A gate accepts each wrapper only when
+its picture is null or has the retail `0x802F97DC` vtable and its unused second
+owner remains null.
+
+Version `0.3.29` keeps snapshot format 16 and removes the remaining census
+bookkeeping ceiling from the experimental cross-room proof. A census now
+accepts up to 64 mounted volumes, stores as many as 63 removals and 63
+additions, and retains all 126 corresponding model changes. This does not
+weaken any topology, allocator-ownership, room-streamer, pending-I/O, or model
+predicate. The enlarged volume/model census and diff records occupy the final
+`0xC4C0` bytes of the existing 16 MiB MEM2 reservation, outside
+`kSnapshotCapacity`, rather than injected MEM1. The state-core optimization
+freed 20,488 bytes before the practice menu was linked. The final combined
+payload is 48,692 bytes: still 9,900 bytes smaller than the unoptimised
+expanded build, 14.9% of the 320 KiB working cap, and about 9.3% of the 512 KiB
+payload window.
+
+An `EPOCH` rejection now rotates four phase records long enough for the ARM
+logger to retain them: the full mismatch/guard word, a compact saved/live
+volume and archive/model-change summary, and saved/live map and scene
+identities. `read_lm_dump.py` decodes phases `D0`, `D1`, and `D2`, so testers
+need not cover the game with the detailed panel. Hold Z only when an on-screen
+census photo is useful.
+
+The menu intentionally omits anything that only gains meaning from
+GaddWarp's patched Event/Map assets. In particular, Perfect RNG, event
+skipping, instant reset, the standalone GBH/Boo-fix switches, physical item or
+element spawning, GBH scan hotspots, Dojo, rush chains, full room reset, and
+the 13 reload-dependent room clears are not presented as working clean-ISO
+toggles. Room, hallway, and map warps remain deferred to the dedicated warp
+menu/state machine.
+
+For the earlier `0.3.29` pass, create a fresh version-16 state for each route.
+Smoke-test same-room and one-room restores, then try progressively longer paths
+across floors and wings. Never request a load during a door animation,
+cutscene, or visible transition; wait until Luigi is controllable and the HUD
+has returned to `G:OK` with `ST` at least 3. After a successful cross-room
+restore, continue through another door and walk for at least 30 seconds. If a
+load refuses, optionally hold Z and photograph the expanded panel, then retain
+the SD logs. After any exception, hard lock, or reboot, do not make another
+successful save before collecting the SD card. Copy all of these when present:
+
+```text
+/ndebug.log
+/lm_dumps/  (all lm_attempt_a.bin through lm_attempt_h.bin)
+/luigis_mansion_crash_a.bin
+/luigis_mansion_crash_b.bin
+/luigis_mansion_crash_a.txt
+/luigis_mansion_crash_b.txt
+```
+
+The current attempt banks retain up to eight successful-save generations;
+further saves eventually rotate the oldest away. These are diagnostic journals,
+not state payloads. Decode the whole folder read-only from the repository
+with (replace `D:` if the SD card uses another drive letter):
+
+```powershell
+.\venv\Scripts\python.exe scripts\read_lm_dump.py D:\lm_dumps
+```
+
+The parser validates the generation inverse and each phase's duplicate
+sequence/inverse fields, marks the newest valid generation, decodes the durable
+reject summary and identities, prints every exact record, and reports any
+incomplete trailing bytes.
+
+Build the Homebrew Channel package with:
+
+```text
+cmake --preset diagnostic_console
+cmake --build --preset diagnostic
+```
+
+The current ZIP contains the matching application files (`boot.dol`,
+`icon.png`, `meta.xml`, authenticated `mod_lmj.bin`), the separate root theme
+folder, release/testing documentation and third-party notices. It does not
+patch or include a retail ISO. See the [main README](../README.md) for installation.

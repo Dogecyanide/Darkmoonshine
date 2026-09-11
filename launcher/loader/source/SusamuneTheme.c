@@ -9,6 +9,7 @@
 #include "exi.h"
 #include "global.h"
 #include "SusamuneTheme.h"
+#include "SusamuneThemeFiles.h"
 #include "background_png.h"
 
 #define THEME_BACKGROUND_WIDTH  1024u
@@ -57,76 +58,6 @@ static void LogHeap(const char *where)
 	gprintf("Susamune theme heap %s: live=%u free=%u sampled_peak=%u\n",
 		where, (unsigned int)info.uordblks, (unsigned int)info.fordblks,
 		(unsigned int)sHeapPeak);
-}
-
-static bool BuildThemeDirectory(char *out, size_t outSize, const char *device,
-	const char *launchDir)
-{
-	const char *dir = launchDir;
-	const char *colon;
-	size_t dirLen;
-	int written;
-
-	if (out == NULL || outSize == 0 || device == NULL)
-		return false;
-	if (strcmp(device, "sd") != 0 && strcmp(device, "usb") != 0)
-		return false;
-
-	if (dir == NULL || dir[0] == '\0')
-		dir = "/apps/moonshine_launcher/";
-	colon = strchr(dir, ':');
-	if (colon != NULL)
-		dir = colon + 1;
-	if (dir[0] == '\0')
-		dir = "/";
-	if (dir[0] != '/')
-		return false;
-	if (strchr(dir, ':') != NULL || strchr(dir, '\\') != NULL ||
-	    strstr(dir, "../") != NULL || strstr(dir, "/..") != NULL)
-		return false;
-
-	dirLen = strlen(dir);
-	written = snprintf(out, outSize, "%s:%s%stheme", device, dir,
-		(dirLen > 0 && dir[dirLen - 1] == '/') ? "" : "/");
-	return written > 0 && (size_t)written < outSize;
-}
-
-static bool BuildThemePath(char *out, size_t outSize, const char *device,
-	const char *launchDir, const char *leaf)
-{
-	char directory[THEME_PATH_MAX];
-	int written;
-
-	if (leaf == NULL || strchr(leaf, '/') != NULL || strchr(leaf, '\\') != NULL)
-		return false;
-	if (!BuildThemeDirectory(directory, sizeof(directory), device, launchDir))
-		return false;
-	written = snprintf(out, outSize, "%s/%s", directory, leaf);
-	return written > 0 && (size_t)written < outSize;
-}
-
-static bool EnsureThemeDirectory(const char *device, const char *launchDir)
-{
-	char path[THEME_PATH_MAX];
-	FRESULT result;
-
-	if (!BuildThemeDirectory(path, sizeof(path), device, launchDir))
-	{
-		snprintf(sWarning, sizeof(sWarning),
-			"Theme folder path is invalid.\nUsing the stock background.");
-		gprintf("Susamune theme: invalid launcher directory\n");
-		return false;
-	}
-	result = f_mkdir_char(path);
-	if (result != FR_OK && result != FR_EXIST)
-	{
-		snprintf(sWarning, sizeof(sWarning),
-			"Theme folder unavailable (I/O %d).\nUsing the stock background.",
-			(int)result);
-		gprintf("Susamune theme: could not create %s (%d)\n", path, (int)result);
-		return false;
-	}
-	return true;
 }
 
 static bool ValidPngColor(u8 depth, u8 color)
@@ -347,8 +278,9 @@ static void ActivateSolidFallback(GRRLIB_texImg **backgroundPtr)
 	sSolidFallback = true;
 }
 
-static bool LoadBackground(const char *path, GRRLIB_texImg **backgroundPtr)
+static bool LoadBackground(const char *launcherDevice, GRRLIB_texImg **backgroundPtr)
 {
+	char path[THEME_PATH_MAX];
 	FILINFO fileInfo;
 	FIL file;
 	GRRLIB_texImg *texture;
@@ -357,7 +289,8 @@ static bool LoadBackground(const char *path, GRRLIB_texImg **backgroundPtr)
 	FRESULT result;
 	char decodeError[80];
 
-	result = f_stat_char(path, &fileInfo);
+	result = SusamuneThemeFindFile(path, sizeof(path), launcherDevice,
+		"background.png", &fileInfo);
 	if (result == FR_NO_FILE || result == FR_NO_PATH)
 		return false;
 	if (result != FR_OK)
@@ -378,13 +311,17 @@ static bool LoadBackground(const char *path, GRRLIB_texImg **backgroundPtr)
 	}
 
 	result = f_open_char(&file, path, FA_READ | FA_OPEN_EXISTING);
-	if (result == FR_OK)
-		result = f_read(&file, header, sizeof(header), &got);
+	if (result != FR_OK)
+	{
+		snprintf(sWarning, sizeof(sWarning),
+			"Theme PNG unreadable (I/O %d).\nUsing the stock background.", (int)result);
+		return false;
+	}
+	result = f_read(&file, header, sizeof(header), &got);
 	if (result != FR_OK || got != sizeof(header) ||
 	    !ValidatePngHeader(header, sizeof(header)) || f_lseek(&file, 0) != FR_OK)
 	{
-		if (result == FR_OK)
-			f_close(&file);
+		f_close(&file);
 		snprintf(sWarning, sizeof(sWarning),
 			"Theme PNG must be a valid 1024x480 PNG.\nUsing the stock background.");
 		gprintf("Susamune theme rejected %s: header or I/O error %d\n",
@@ -459,13 +396,11 @@ static bool LoadBackground(const char *path, GRRLIB_texImg **backgroundPtr)
 bool SusamuneThemeLoad(const char *launcherDevice, const char *launchDir,
 	GRRLIB_texImg **backgroundPtr)
 {
-	char path[THEME_PATH_MAX];
-	bool directoryReady;
 	bool loaded = false;
+	(void)launchDir;
 
 	sWarning[0] = '\0';
 	sSolidFallback = false;
-	directoryReady = EnsureThemeDirectory(launcherDevice, launchDir);
 	if (backgroundPtr == NULL || *backgroundPtr == NULL ||
 	    (*backgroundPtr)->data == NULL)
 	{
@@ -475,12 +410,7 @@ bool SusamuneThemeLoad(const char *launcherDevice, const char *launchDir,
 		return false;
 	}
 	LogHeap("before-load");
-	if (BuildThemePath(path, sizeof(path), launcherDevice, launchDir,
-		"background.png"))
-		loaded = LoadBackground(path, backgroundPtr);
-	else if (directoryReady)
-		snprintf(sWarning, sizeof(sWarning),
-			"Theme PNG path is too long.\nUsing the stock background.");
+	loaded = LoadBackground(launcherDevice, backgroundPtr);
 	if (!loaded)
 		gprintf("Susamune theme: using embedded background\n");
 	return loaded;
