@@ -59,6 +59,10 @@ endif()
 option(LM_BOOTSTRAP "Keep the inherited Sunshine game-side pipeline disabled" ON)
 option(LM_DIAGNOSTIC
     "Build and package the fail-closed GLMJ01 state/diagnostic payload" OFF)
+option(LM_EMULATOR "Build GLMJ01 development payload for Dolphin fake VMEM" OFF)
+if(LM_EMULATOR AND NOT LM_DIAGNOSTIC)
+    message(FATAL_ERROR "LM_EMULATOR requires LM_DIAGNOSTIC")
+endif()
 if(LM_DIAGNOSTIC AND NOT LM_BOOTSTRAP)
     message(FATAL_ERROR "LM_DIAGNOSTIC and the inherited Sunshine pipeline are mutually exclusive")
 endif()
@@ -97,7 +101,23 @@ if(LAUNCHER_VERSION STREQUAL "V1.2.0" OR
    LAUNCHER_VERSION MATCHES "^V2\\.1\\.0 Release Candidate [0-9]+")
     unset(LAUNCHER_VERSION CACHE)
 endif()
-set(LAUNCHER_VERSION "Full-State Experimental 0.3.8" CACHE STRING
+set(_lm_branding_header "${CMAKE_SOURCE_DIR}/include/susamune/lm_branding.h")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_lm_branding_header}")
+file(STRINGS "${_lm_branding_header}" _lm_version_line REGEX "^#define LM_BRANDING_VERSION ")
+file(STRINGS "${_lm_branding_header}" _lm_package_line REGEX "^#define LM_BRANDING_PACKAGE_STEM ")
+string(REGEX REPLACE "^#define LM_BRANDING_VERSION \"(.*)\"$" "\\1"
+    _lm_branding_version "${_lm_version_line}")
+string(REGEX REPLACE "^#define LM_BRANDING_PACKAGE_STEM \"(.*)\"$" "\\1"
+    _lm_package_stem "${_lm_package_line}")
+if(LM_BOOTSTRAP)
+    set(_launcher_default_version "${_lm_branding_version}")
+    if(LAUNCHER_VERSION MATCHES "^Full-State Experimental 0\\.3\\.[0-9]+$")
+        unset(LAUNCHER_VERSION CACHE)
+    endif()
+else()
+    set(_launcher_default_version "Full-State Experimental 0.3.43")
+endif()
+set(LAUNCHER_VERSION "${_launcher_default_version}" CACHE STRING
     "Version shown in the packaged launcher meta.xml")
 
 option(LAUNCHER_DISABLE_SUSAMUNE_PATCH "Disable the Susamune patch in the launcher kernel" OFF)
@@ -140,8 +160,14 @@ string(REGEX REPLACE "[._-]+$" "" _launcher_version_slug "${_launcher_version_sl
 if(NOT _launcher_version_slug)
     set(_launcher_version_slug "unknown")
 endif()
-set(LAUNCHER_VERSIONED_ZIP
-    "${CMAKE_BINARY_DIR}/Moonshine-Luigis-Mansion-${_launcher_version_slug}.zip")
+if(LM_BOOTSTRAP AND LAUNCHER_VERSION STREQUAL _lm_branding_version)
+    set(LAUNCHER_VERSIONED_ZIP "${CMAKE_BINARY_DIR}/${_lm_package_stem}.zip")
+elseif(LM_BOOTSTRAP)
+    set(LAUNCHER_VERSIONED_ZIP "${CMAKE_BINARY_DIR}/DarkMoonshine-${_launcher_version_slug}.zip")
+else()
+    set(LAUNCHER_VERSIONED_ZIP
+        "${CMAKE_BINARY_DIR}/Moonshine-Luigis-Mansion-${_launcher_version_slug}.zip")
+endif()
 set(MOD_BINS "")
 
 # The first Luigi's Mansion payload is deliberately separate from the inherited
@@ -149,6 +175,9 @@ set(MOD_BINS "")
 if(LM_DIAGNOSTIC)
     set(LM_DIAG_DIR "${CMAKE_SOURCE_DIR}/lm_diag")
     file(GLOB LM_DIAG_SOURCES CONFIGURE_DEPENDS "${LM_DIAG_DIR}/src/*.cpp")
+    # Compression is a synchronous hot path; keep the rest of the payload small.
+    set_source_files_properties("${LM_DIAG_DIR}/src/lm_state_deflate.cpp"
+        PROPERTIES COMPILE_OPTIONS "-O2")
     if(NOT LM_DIAG_SOURCES)
         message(FATAL_ERROR "LM_DIAGNOSTIC is enabled but lm_diag/src has no sources")
     endif()
@@ -189,7 +218,7 @@ if(LM_DIAGNOSTIC)
         -Wno-main
         -Wno-incompatible-library-redeclaration)
     target_compile_definitions(lm_diag_obj PRIVATE
-        IS_EMULATOR=0
+        IS_EMULATOR=$<BOOL:${LM_EMULATOR}>
         LM_DIAGNOSTIC=1
         SUSAMUNE_VERSION_LMJ=1)
     target_link_options(lm_diag_obj PRIVATE
@@ -205,6 +234,7 @@ if(LM_DIAGNOSTIC)
             --patches-file "${LM_DIAG_DIR}/patches.py"
             --kuribo-home "${KURIBO_COMPILER_HOME}"
             --vers lmj
+            --runtime "$<IF:$<BOOL:${LM_EMULATOR}>,dolphin,nintendont>"
             --out "${_lm_manifest}"
             launcher
         DEPENDS lm_diag_obj "${LM_DIAG_DIR}/glmj.ld"
@@ -221,6 +251,24 @@ if(LM_DIAGNOSTIC)
         VERBATIM)
     set(MOD_BINS "${_lm_bin}")
     add_custom_target(mod_bins ALL DEPENDS ${MOD_BINS})
+    if(LM_EMULATOR)
+        set(LM_ISO "" CACHE FILEPATH "Verified clean GLMJ01 revision-0 ISO for Dolphin development")
+        if(LM_ISO)
+            set(_lm_emu_iso "${CMAKE_BINARY_DIR}/moonshine_lmj_dolphin.iso")
+            set(_lm_emu_bps "${CMAKE_BINARY_DIR}/moonshine_lmj_dolphin.bps")
+            add_custom_command(
+                OUTPUT "${_lm_emu_iso}" "${_lm_emu_bps}"
+                COMMAND "${VENV_PYTHON}" "${CMAKE_SOURCE_DIR}/scripts/build_lm_emulator.py"
+                    --iso "${LM_ISO}" --mod-manifest "${_lm_manifest}"
+                    --output-iso "${_lm_emu_iso}" --output-bps "${_lm_emu_bps}"
+                DEPENDS "${_lm_manifest}" "${LM_ISO}"
+                    "${CMAKE_SOURCE_DIR}/scripts/build_lm_emulator.py"
+                    "${CMAKE_SOURCE_DIR}/scripts/gen_iso_bps.py"
+                COMMENT "Building verified GLMJ01 Dolphin ISO and source-safe BPS"
+                VERBATIM)
+            add_custom_target(lm_emulator DEPENDS "${_lm_emu_iso}" "${_lm_emu_bps}")
+        endif()
+    endif()
 endif()
 
 # The inherited game-side pipeline still targets Super Mario Sunshine and is
@@ -454,6 +502,11 @@ add_custom_target(iso DEPENDS "${FINAL_ISO}")
 
 endif()
 
+if(LM_EMULATOR)
+    # Dolphin's fake VMEM addresses cannot be packaged for physical hardware.
+    return()
+endif()
+
 # The launcher (custom Nintendont) is a CMake super-build under launcher/. It's a
 # separate build tree because it spans three cross toolchains (devkitARM,
 # devkitPPC, devkitPPC+libogc) that CMake can't mix with the Kuribo clang used
@@ -517,7 +570,7 @@ ExternalProject_Add(nintendont_launcher
     USES_TERMINAL_BUILD ON
     EXCLUDE_FROM_ALL TRUE)
 
-if(LM_BOOTSTRAP)
+if(LM_BOOTSTRAP AND NOT LM_EMULATOR)
     add_custom_target(launcher ALL DEPENDS nintendont_launcher)
 else()
     add_custom_target(launcher DEPENDS nintendont_launcher)

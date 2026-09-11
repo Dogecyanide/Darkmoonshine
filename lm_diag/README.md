@@ -1,33 +1,86 @@
-# GLMJ01 MEM1 diagnostic
+# DarkMoonshine GLMJ01 payload
 
-This payload is the first game-side test for the Japanese Luigi's Mansion
-revision (`GLMJ01`, revision 0). It reserves the Moonshine 512 KiB MEM1 window
-at `0x804B8400-0x80538400` and renders a heap report directly into LM's copied
-640x480 YUYV framebuffer with the retail `JUTDirectPrint` bitmap renderer. It
-does not depend on a resource font, heap allocation, projection, or scene GX
-state. The panel and raw checkerboard are inset from the top to survive normal
-capture overscan; the checkerboard remains visible even if the text renderer is
-unavailable. The launcher authenticates the clean DOL layout and
-every hook word before it copies or patches anything; another revision runs
-unmodified.
+Current release: **V1.0.0 Frozen in Time**, snapshot format **28**.
+Authors: **Dogecyanide, Nintendont Team**.
 
-The overlay rows are:
+Dogecyanide reports that all ten RC4 Wii checklist items worked. V1.0.0 uses
+that gameplay implementation with final branding; the report is not a new
+hardware run of the final binary or a universal mansion/boss compatibility
+claim. See the [release notes](../doc/darkmoonshine-1.0.0.md) and
+[current priorities](../doc/lm-current-priorities.md).
 
-```text
-LM STATE X0.3.29 F:<floor> C:<canary> H:<heap check> X<cross-room guard>
-S:<state status> ST<stable frames> SZ<snapshot KiB> G:<gate> <gate value>
-```
+The Japanese `GLMJ01` revision-0 payload reserves the Moonshine 512 KiB MEM1
+window at `0x804B8400-0x80538400`. The launcher validates the clean DOL layout
+and every hook word before injection; another executable revision is not
+patched. The original ISO remains unchanged.
 
-D-pad Left saves a state, D-pad Right loads it, and D-pad Down opens the
-payload-native practice menu in a stable mansion room. Menu controls are L/R
-page, D-pad Up/Down row, D-pad Left/Right value, A apply, and B close. Its four
-pages expose the clean-runtime non-warp subset recovered from GaddWarp: mansion
-mode, Boo presets, blackout, HP, doors/traps and unlock-all, Boneyard plant
-presets, 59 strict current-room clear recipes, BGM, and explicit card save.
+The normal HUD uses brief top-left action notices, not the former memory
+panel/checkerboard. Text uses the retail `JUTDirectPrint` renderer on the
+completed 640×480 YUYV framebuffer; optional timer/input overlays use bounded,
+heapless framebuffer drawing. Background heap checks, refusal details and
+diagnostic journals remain active. Optional overlays are suppressed during
+native single-buffer presentations to avoid drawing into active scanout.
 
-Those two rows are the normal gameplay HUD. After an `EPOCH` refusal, hold Z
-to reveal the detailed panel below. The SD journal retains the important
-refusal data whether or not Z is held:
+## Release feature and storage contract
+
+- One complete RAM state, named SD export/import/browser/rename/deletion,
+  supported cross-room/floor and post-warp loads, and guarded reboot reuse.
+- A 68-entry room/boss warp list, native room reset/clear recipes, recordable
+  Reset Room combo, and the existing game/door/audio practice pages.
+- Sunshine-style timer/Creation, native-menu counting preference, Moonshine
+  controller display, speed/position/angle metadata, lag and R-pump counters,
+  input reference timing, and Luigi shirt/cap colour.
+- Persistent Wii preferences in `moonshine_lm.ini`; the mod menu does not
+  pause gameplay or its active timer. Genuine scripted timer stops and the
+  native 36-counted-minute rollover remain.
+- Bounded LZ4 shared-companion/rollback compression with denser Deflate
+  fallback, using the unchanged `0x50000` codec workspace. Table CRCs preserve
+  the same checksum results and every validation pass. The raw core remains
+  raw; shared staging/rollback storage is not a second RAM slot.
+
+The timer's generated artwork retains its Super Mario Sunshine provenance;
+the supplied launcher theme and inherited third-party notices are preserved.
+
+Fresh exports say `REBOOT READY` only when the durable SD key, build/setup and
+retained-owner profile are available; otherwise they are `THIS BOOT ONLY`.
+Import fills the RAM slot; Load restores gameplay. The Secret Altar unmatched
+event-resource refusal remains. There is no raw SYS/OS/audio/GX rewind, no
+universal boss-state guarantee, and no automatic trick-success detector.
+Dojo, Boss Rush and Portrait Rush are deferred.
+
+Make **fresh final-release archives**: format 28 is unchanged from RC4, but
+final branding changes the authenticated build identity. Old archives are
+not converted by renaming. Existing SD app/settings/state/log paths stay
+unchanged. See the [storage contract](../doc/lm-state-storage.md),
+[retained-owner proof](../doc/lm-persistent-owner-proof.md), and
+[compression benchmark](../doc/lm-compression-benchmark.md).
+
+## Controls and diagnostics
+
+D-pad Left saves, Right loads, and Down opens the practice menu in stable
+gameplay. Stick/D-pad chooses categories, A enters/applies, and B returns or
+closes. Page-specific hints cover L/R navigation, adjustment, editors, naming
+and confirmation. Closing a changed menu queues preferences for storage;
+wait for the saved acknowledgement before powering off.
+
+The popup reports Saving/Saved and Loading/Loaded or Busy/Rejected, then
+clears. Refused actions are not queued for surprise execution. Collect the
+entire `lm_dumps` folder and available `luigis_mansion_crash_a/b.bin` and
+`.txt` reports after a fault. Eight rotating attempt journals are diagnostic
+histories, not eight savestate payloads. Keep authentication keys private.
+
+[The current runner checklist](../doc/lm-testing-current.md) is packaged as
+`TESTING.md`. The following material is retained diagnostic history, not
+additional release tests or the current on-screen UI.
+
+## Historical diagnostic reference
+
+While status is BUSY, `G:` retains the rejected action's cause/value rather
+than the next frame's live gate. The safety checks still run on each request;
+refused actions are not queued for an unexpected later execution.
+
+The following panel format is historical (.44 and earlier), not the release HUD.
+Its expanded Z view is removed; the SD journal still retains the refusal data:
 
 ```text
 E:<first epoch field> M<mismatch mask> <saved value>><live value>
@@ -76,12 +129,13 @@ unused phase bits. `/ndebug.log` and `scripts/read_lm_dump.py` therefore retain
 the exact guard that refused a load even if no HUD screenshot is available.
 
 Starting with `0.3.25`, a valid GLMJ diagnostic boot also creates `/lm_dumps`
-on the launcher's storage device. `lm_attempt_a.bin` and `lm_attempt_b.bin`
-alternate on successful saves. Each contains a 32-byte generation/build header
+on the launcher's storage device. The initial two banks expanded in .41 to
+eight: `lm_attempt_a.bin` through `lm_attempt_h.bin`, rotating on successful
+saves. Each contains a 32-byte generation/build header
 followed by the exact 32-byte phase records observed after that save; no heap or
 MEM2 snapshot bytes are duplicated. Every accepted record is synced while no
 asynchronous DI read is active. A half-created generation is ignored unless its
-header and first save-complete record agree, leaving the other bank recoverable.
+header and first save-complete record agree, leaving prior valid banks recoverable.
 
 GLMJ crash captures use `/luigis_mansion_crash_a.bin` and
 `/luigis_mansion_crash_b.bin`, with matching `.txt` reports whose heading also
@@ -435,7 +489,7 @@ the 13 reload-dependent room clears are not presented as working clean-ISO
 toggles. Room, hallway, and map warps remain deferred to the dedicated warp
 menu/state machine.
 
-For the current `0.3.29` pass, create a fresh version-16 state for each route.
+For the earlier `0.3.29` pass, create a fresh version-16 state for each route.
 Smoke-test same-room and one-room restores, then try progressively longer paths
 across floors and wings. Never request a load during a door animation,
 cutscene, or visible transition; wait until Luigi is controllable and the HUD
@@ -447,14 +501,16 @@ successful save before collecting the SD card. Copy all of these when present:
 
 ```text
 /ndebug.log
-/lm_dumps/lm_attempt_a.bin
-/lm_dumps/lm_attempt_b.bin
+/lm_dumps/  (all lm_attempt_a.bin through lm_attempt_h.bin)
+/luigis_mansion_crash_a.bin
+/luigis_mansion_crash_b.bin
 /luigis_mansion_crash_a.txt
 /luigis_mansion_crash_b.txt
 ```
 
-The attempt banks retain the newest two successful-save generations; a later
-save rotates the older one away. Decode both files read-only from the repository
+The current attempt banks retain up to eight successful-save generations;
+further saves eventually rotate the oldest away. These are diagnostic journals,
+not state payloads. Decode the whole folder read-only from the repository
 with (replace `D:` if the SD card uses another drive letter):
 
 ```powershell
@@ -473,5 +529,7 @@ cmake --preset diagnostic_console
 cmake --build --preset diagnostic
 ```
 
-The resulting ZIP contains only `boot.dol`, `icon.png`, `meta.xml`, and the
-authenticated `mod_lmj.bin`; it does not patch the ISO.
+The current ZIP contains the matching application files (`boot.dol`,
+`icon.png`, `meta.xml`, authenticated `mod_lmj.bin`), the separate root theme
+folder, release/testing documentation and third-party notices. It does not
+patch or include a retail ISO. See the [main README](../README.md) for installation.

@@ -15,6 +15,17 @@
 #define SUSAMUNE_PHASE_ACTION_SAVE        1u
 #define SUSAMUNE_PHASE_ACTION_LOAD        2u
 #define SUSAMUNE_PHASE_ACTION_POST_LOAD   3u
+#define SUSAMUNE_PHASE_ACTION_WARP        4u
+
+#define SUSAMUNE_LM_WARP_REQUEST          0x01u
+#define SUSAMUNE_LM_WARP_ACCEPT           0x02u
+#define SUSAMUNE_LM_WARP_DISPATCH         0x10u
+#define SUSAMUNE_LM_WARP_APPEARANCE       0x20u
+#define SUSAMUNE_LM_WARP_PREPARED         0x21u
+#define SUSAMUNE_LM_WARP_SETTLING         0x30u
+#define SUSAMUNE_LM_WARP_ARRIVED          0x7Fu
+#define SUSAMUNE_LM_WARP_REJECT           0xD0u
+#define SUSAMUNE_LM_EVENT_WARP            0x120u
 
 /* A load phase with this flag is an LM epoch-mismatch diagnostic.  The low
  * 22 bits form a complete mismatch mask, bits 22-29 retain the guarded
@@ -59,6 +70,7 @@
 #define SUSAMUNE_CRASH_FLAG_LR_WINDOW     (1u << 2)
 #define SUSAMUNE_CRASH_FLAG_DIRECTOR      (1u << 3)
 #define SUSAMUNE_CRASH_FLAG_MARIO         (1u << 4)
+#define SUSAMUNE_CRASH_FLAG_LM_EFFECT     (1u << 5)
 
 #define SUSAMUNE_CRASH_BREADCRUMB_COUNT   16u
 #define SUSAMUNE_CRASH_BACKTRACE_COUNT    32u

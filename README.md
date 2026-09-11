@@ -1,171 +1,125 @@
-# Moonshine Luigi's Mansion
+# DarkMoonshine
 
-An experimental port of [Moonshine](https://github.com/panther03/moonshine)'s
-Wii/Nintendont savestate architecture to the Japanese release of Luigi's
-Mansion (`GLMJ01`).
+## V1.0.0 Frozen in Time
 
-## Current status
+A practice mod for **Luigi's Mansion (Japan, GLMJ01 revision 0)**, built on
+[Moonshine](https://github.com/panther03/moonshine)'s Wii/Nintendont foundation.
 
-`Full-State Experimental 0.3.29` is the current hardware-testable state build.
+**Authors: Dogecyanide, Nintendont Team.**
 
-- The custom Nintendont launcher accepts only the verified Japanese `GLMJ01`
-  revision-0 executable for injection.
-- A measured 512 KiB MEM1 window holds the LM payload without patching the ISO.
-- One transactional slot uses Moonshine's protected 15.94 MiB MEM2 bank.
-- The slot captures the complete secondary gameplay heap, its allocator and
-  disposer metadata, audited gameplay-static SDATA/SBSS slices with known
-  live-owned blocks excluded, the scalar halves of LM's fixed door/fade
-  controller, renderer state, persistent camera descriptors and manager
-  tables, the main-loop control pair, both grain-effect managers, the JPA
-  particle manager and their list sentinels, LM's fixed transient
-  animated-model owner registry, the door lookup/transition banks and their
-  heap pointers, room/door visibility masks, the complete room event/text
-  interpreter and request, the room actor-pointer table, the fixed
-  room-streamer and model-resource tables, the active-event bitmap, the
-  room-name presenter's fixed owner array, the fixed scene-effect manager and
-  controller/list state,
-  mounted-volume list header, and libc RNG state. The fade controller's
-  embedded `J2DPicture` remains live;
-  the three persistent camera-view objects receive a guarded sidecar only if
-  they are outside the gameplay heap.
-- Save/load is refused while either DVD worker is not provably asleep on an
-  empty queue, while DVD, ARAM, or memory-card work is active, while the heap
-  is unstable, when a slot checksum fails, or when the observed live
-  allocator/resource markers differ from the saved ones.
-- Each transaction drains LM's prior JAudio scene handles while preserving its
-  required replacement bootstrap handle, then holds the OS scheduler while
-  only lock-free snapshot work runs.
-- Moonshine's ARM crash writer accepts LM exception reports and rotates
-  `luigis_mansion_crash_a/b.bin` plus readable, LM-labelled `.txt` reports on
-  the launcher's storage device. Sunshine retains its existing filenames.
-- A cache-coherent phase journal records the last completed save/load step in
-  `/ndebug.log`, even when the PowerPC hard-locks and no exception is raised.
-- GLMJ builds also create `/lm_dumps` and rotate two compact binary attempt
-  journals. A successful save starts the next generation; every phase the ARM
-  observes afterward is synced without copying the MEM2 snapshot.
-- State requests run after LM's complete framebuffer/retrace routine, matching
-  Moonshine's proven post-draw timing. A compact journal spine brackets the
-  first restored draw, main update, audio tail, presenter, and loop lifecycle.
-- Post-load tracing records eight complete restored frames, then keeps a
-  low-rate two-minute tail. A successful save during that tail refreshes its
-  deadline. Stick movement beyond the diagnostic deadzone or any button change
-  now traces the current and following `MAIN GAME` updates; a fresh A-button
-  press additionally
-  opens a 240-frame door watch. Changes in room, scene, streaming, resource, or
-  archive state re-arm the retained lifecycle trace for two updates. The 144
-  per-call probes used to isolate the `0.3.25` failure are removed from this
-  build now that their target manager is captured.
-- Cross-room checks retain a complete 22-field epoch mask plus the saved and
-  live values of the highest-priority mismatch on both the overlay and in
-  `/ndebug.log`. Rejection journals preserve the exact `X01-X08` guard stage,
-  saved/live map and scene values, volume counts, removed/added counts, and
-  changed-model count instead of relying on a photographed HUD.
-- The first cross-room path is deliberately narrow. It accepts any nonzero
-  subset of volume count/head drift (`M00000080`, `M00000100`, or
-  `M00000180`) with an unchanged tail and all other epoch fields unchanged,
-  then requires a bounded, validated ordered replacement whose surviving
-  volumes form an exact common subsequence. Pure additions and removals are
-  allowed only when every later ownership/resource/model proof also passes.
-- Generation-keyed volume, seven-slot room-streamer, and 262-entry model-table
-  censuses must also prove that the changing archives and backing allocations
-  are game-heap-owned and that no asynchronous resource operation is live.
-- On an accepted load, the raw game heap and captured fixed owner tables rewind
-  together, the saved `JKRFileLoader` links are repaired, and both GX vertex and
-  texture caches are invalidated before gameplay resumes. The experiment does
-  not call LM's archive unload/load or room-reconcile routines.
-- Snapshot format 11, introduced by `0.3.22`, added GLMJ01's transient
-  animated-model owner registry at `0x803C26C8-0x803C2D94`. The model update
-  validates each active heap slot against its matching companion controller
-  and retires a broken ownership pair. A second guard skips only an unsafe
-  controller update, preserving a recoverable effect while preventing LM's
-  null model-descriptor dereference.
-- Snapshot format 12 adds the fixed door-visibility subsystem at
-  `0x80399510-0x80399B30`, room/door visibility masks at
-  `0x803C2E10-0x803C3030`, the complete room event/text interpreter and request
-  at `0x803C7CA0-0x803C8428`, and the 128-entry room actor-pointer table at
-  `0x803C8490-0x803C8690`. The actor count already lives in captured SBSS, so
-  the count and table now rewind together.
-- Snapshot format 13 adds the pointer-free active-event bitmap at
-  `0x803C20C8-0x803C2138`, closing the split where saved heap event objects
-  were paired with destination-room activation flags. Cross-room restores
-  also discard completed DVD request payload pointers and restart LM's
-  64-entry request ring while both original OS workers and queues remain live.
-- Snapshot format 14, introduced by `0.3.25`, adds the fixed scene-effect
-  controller state at `0x803CE0F0-0x803CEB00`. Its list sentinels, pointer
-  vectors, and active counts now rewind with their gameplay-heap nodes; the
-  following destructor and asynchronous queue records remain live.
-- Snapshot format 15, introduced by `0.3.26`, adds the adjacent scene-effect
-  manager at `0x803CD1F4-0x803CD4C8`. The `0.3.25` attempt journal isolated its
-  stale heap-node anchor as the repeatable delayed walking failure. Model-census
-  scratch now lives at the protected end of MEM2 instead of duplicating 60,824
-  bytes in the injected payload; removing the resolved per-call probes reduces
-  that payload from 140,952 to 46,104 bytes while retaining the HUD, crash
-  capture, journals, and animated-model repair hooks.
-- `0.3.27` removes the now-obsolete free-memory polling and large normal-play
-  display path while retaining periodic heap integrity checks. The payload is
-  45,272 bytes, 832 bytes smaller than `0.3.26`; the expanded rejection panel
-  remains available automatically when needed.
-- Snapshot format 16, introduced by `0.3.28`, rewinds the complete ten-wrapper
-  room-name owner array at `0x803C4628-0x803C4718`. The `0.3.27` crash report
-  proved a three-room restore completed and ran for about 4.88 seconds before
-  that live owner tried to delete a picture from the rewound gameplay heap.
-  Each live wrapper is also checked for the retail picture vtable before a
-  state can be taken.
-- `0.3.29` removes the remaining diagnostic bookkeeping ceiling from the
-  guarded cross-room path. It validates up to 64 mounted volumes and retains
-  every possible 63-removed/63-added archive delta plus all 126 matching model
-  changes; the existing ordering, ownership, idle-I/O, room-streamer, and model
-  proofs still fail closed. All large census/diff workspaces now occupy a
-  protected `0xC4C0`-byte tail of the existing MEM2 snapshot reservation,
-  outside the saved bytes, instead of consuming injected MEM1.
-- `0.3.29` also adds a payload-native, clean-ISO practice menu. It provides
-  normal/Hidden Mansion mode, Boo spawning and requirement presets, blackout,
-  HP 1/100, three door/trap switches, the exact GaddWarp unlock-all whitelist,
-  Boneyard plant presets, stock BGM selection/stop, an explicit memory-card
-  save, and strict current-room clear recipes for 59 of map 2's 72 room IDs.
-  No room warp, patched event asset, or fake one-call room reset is hidden in
-  this first menu build. The linked payload is 48,692 bytes: 14.9% of the
-  320 KiB working cap and about 9.3% of the 512 KiB payload window.
+The Wii launcher injects the mod into an unmodified game image at boot.
+**No patched ISO is required.** Supply your own legally dumped Japanese game;
+no retail ISO or game save is included.
 
-Controls are D-pad Left to save, D-pad Right to load, and D-pad Down to open
-the practice menu once LM is in a stable mansion room. In the menu, use L/R
-for pages, D-pad Up/Down for rows, D-pad Left/Right to choose or set a value,
-A to apply, and B to close. Destructive actions require a second A press.
-The normal overlay is only two lines. After an `EPOCH` refusal, hold Z to reveal the full
-archive/resource/model panel; the SD journal records the important refusal
-details without Z. Confirm a same-room restore first, then test progressively
-longer routes using a fresh save for each route and wait until Luigi is fully
-controllable before loading. `0.3.29` no longer refuses solely because more
-than eight archives or sixteen models changed, but it still must pass every
-ownership, ordering, resource, and model-state predicate. A successful load is
-evidence for that resource shape, not yet general cross-room support. This
-remains a crash-risk feasibility test. Audio may remain silent after a save or
-load until game logic starts the room sequence again.
+Dogecyanide reports that **all ten RC4 Wii checklist items worked**, including
+the repeated-load, cross-floor, post-warp, SD-import and reboot cases.
+V1.0.0 promotes that gameplay implementation with final release branding.
+This is route-specific hardware feedback, not a promise that every boss,
+cutscene or resource transition supports savestates.
 
-The inherited Sunshine payload remains in the repository as porting reference.
-Its build targets are hidden unless CMake is explicitly configured with
-`-DLM_BOOTSTRAP=OFF`; do not apply those DOL/BPS/mod-bin outputs to Luigi's
-Mansion.
+See the [release notes](doc/darkmoonshine-1.0.0.md) and the packaged
+[runner checklist](doc/lm-testing-current.md).
 
-## Goal
+## Features
 
-The target is exact savestates between any ordinary mansion rooms in `map2`,
-including transitions between floors. Floor is not the compatibility boundary:
-allocator and resource lifetime are. Boss arenas and other maps are explicitly
-out of scope for the first implementation.
+- **One RAM savestate**, with D-pad save/load and guarded cross-room,
+  cross-floor and post-menu-warp restores.
+- **Named SD archives:** an in-game keyboard, browser, import/export, rename,
+  and confirmed deletion. Eligible `REBOOT READY` archives can be reused after
+  soft reset or a full Wii reboot with the same compatible build and setup.
+- **Room warps and tools:** 68 named room/boss destinations, supported native
+  room reset/clear recipes, and a configurable Reset Room button combination.
+- **Sunshine-style timer:** original angled artwork, visibility and TIME-icon
+  switches, per-character colour and layout editing, and a separate streak
+  editor. The optional native-menu counting setting is persistent; the mod
+  menu always counts active game time.
+- **Practice displays:** Moonshine-style controller display, position/angle/
+  horizontal-speed metadata, lag counting, R-pump hold frames, and recorded
+  input-timing references.
+- **Game options:** normal/Hidden Mansion selection, Boo and blackout options,
+  health presets, door/trap settings, Poltergust tank presets, plant presets,
+  and background-music controls.
+- **Luigi colour:** change his shirt and cap RGB colour.
+- **Persistent Wii preferences** in `moonshine_lm.ini`, plus a themed launcher
+  with Auto Boot and on-demand storage startup.
+- **Faster state processing:** bounded LZ4 compression with denser Deflate
+  fallback and equivalent table-based checksums. Integrity and ownership
+  checks remain in place.
 
-As with Moonshine, the release architecture must boot a clean, verified
-Japanese `GLMJ01` image and inject the game-side payload at runtime through the
-custom Nintendont launcher. A pre-patched ISO is neither a user requirement nor
-a distributable release artifact.
+The game continues running while the mod menu is open. A memory savestate is
+separate from a normal memory-card save; the menu's game-save action writes
+retail progress, not a savestate.
 
-See [the GLMJ01 porting plan](doc/glmj01-porting.md) for the architecture,
-runtime gates, and test ladder.
+## Install on Wii
 
-## Build the launcher
+Extract `DarkMoonshine-1.0.0-Frozen-in-Time.zip` so the SD card contains:
 
-On Windows with Python, CMake, Ninja, Git LFS, and the repository's LFS objects
-present:
+```text
+apps/moonshine_luigis_mansion/boot.dol
+apps/moonshine_luigis_mansion/icon.png
+apps/moonshine_luigis_mansion/meta.xml
+apps/moonshine_luigis_mansion/mod_lmj.bin
+Darkmoonshine_Theme/
+```
+
+Install the matching launcher and payload together. Keep existing custom theme
+files if preferred. Launch **DarkMoonshine** from the Homebrew Channel and
+choose your clean Japanese game image. The filename need not be `GLMJ01.iso`;
+the launcher checks the actual game identity.
+
+Existing app, settings, archive and log paths intentionally retain their old
+names. Do not create a second app directory when upgrading. Back up normal
+saves and the complete `lm_states` directory, including its private key and
+name records. Keep those keys private.
+
+**Make fresh V1.0.0 archives after upgrading.** Snapshot format remains 28,
+but final branding changes the authenticated build identity. RC4 and earlier
+archives are not compatible with the final build; renaming them cannot
+convert them. Existing archives and preferences are not deleted by upgrading.
+
+## Controls
+
+| Action | Control |
+| --- | --- |
+| Save to RAM | D-pad Left |
+| Load from RAM | D-pad Right |
+| Open practice menu | D-pad Down |
+| Choose a category or row | Control stick or D-pad |
+| Enter/apply | A |
+| Back/close | B |
+| Change page / adjust a value | Follow the displayed L/R and D-pad hints |
+
+Editors, naming and deletion show their own controls and confirmation prompts.
+**Import fills the RAM slot; Load restores gameplay.** Wait for the completion
+notice before removing storage. Closing a changed menu saves preferences;
+wait for its saved acknowledgement before powering off.
+
+## Limits and reporting
+
+- Secret Altar can introduce unmatched event resources that safely refuse a
+  load of an earlier mansion state. Boss/map boundaries are not universally
+  supported. Room warps and savestate compatibility are separate features.
+- `BUSY`, `EPOCH` and capacity refusals are safety decisions, not invitations
+  to bypass the checks. Wait until a door/transition settles before trying again.
+- There is **one resident state**, not two. Named SD archives provide a library
+  without borrowing live staging or rollback memory.
+- Timing displays measure inputs; they do not yet certify pearl dupes or
+  Chauncey one-cycle success. Dojo, Boss Rush and Portrait Rush are deferred.
+- The timer follows native game updates and scripted stops, with the native
+  36-counted-minute rollover. It is not a wall-clock timer.
+- Dolphin is a separate development target; Wii SD services and preferences
+  are not supplied by the Dolphin BPS alone.
+
+After a problem, preserve the **entire `lm_dumps` folder**, available
+`luigis_mansion_crash_a/b.bin` and `.txt` reports, and `ndebug.log`.
+Include the exact rooms/actions and whether failure occurred during Import,
+Load, or subsequent gameplay. The eight rotating attempt files are diagnostic
+journals, not eight savestates. Share affected archives/name records privately
+when requested, but never include the SD authentication keys.
+
+## Build and developer references
+
+With Python, CMake, Ninja, Git LFS and the repository's LFS objects available:
 
 ```powershell
 python setup_venv.py
@@ -173,131 +127,30 @@ cmake --preset diagnostic_console
 cmake --build --preset diagnostic
 ```
 
-The build emits a version-labelled tester package plus a stable compatibility
-name:
+Outputs include the versioned ZIP and the byte-identical compatibility filename
+`build-lm-diag/moonshine_luigis_mansion_launcher.zip`. Each package includes
+`TESTING.md`. The [payload guide](lm_diag/README.md),
+[storage contract](doc/lm-state-storage.md),
+[compression benchmark](doc/lm-compression-benchmark.md), and
+[current priorities](doc/lm-current-priorities.md) cover implementation details.
+For local emulator builds, use the separate
+[Dolphin development guide](doc/dolphin-development.md).
 
-```text
-build-lm-diag/Moonshine-Luigis-Mansion-Full-State-Experimental-0.3.29.zip
-build-lm-diag/moonshine_luigis_mansion_launcher.zip
-```
-
-Both ZIPs are byte-identical. Use the version-labelled file when sharing a
-build; every future `LAUNCHER_VERSION` automatically gets its own filename.
-
-Extract it so the SD card contains:
-
-```text
-apps/moonshine_luigis_mansion/boot.dol
-apps/moonshine_luigis_mansion/icon.png
-apps/moonshine_luigis_mansion/meta.xml
-apps/moonshine_luigis_mansion/mod_lmj.bin
-```
-
-The launcher stores its own settings in `/moonshine_lm.ini`. No game image is
-included or accepted into this repository; test with a legally dumped Japanese
-disc or ISO.
-
-## Wii experimental-state test
-
-Back up any real memory-card data, install the four packaged files under
-`apps/moonshine_luigis_mansion/`, and launch a clean revision-0 GLMJ01 image.
-The overlay must start with `LM STATE X0.3.29`; wait until `F`, `C`, `H`, and
-`G` are `OK` and `ST` is at least 3. The trailing `X` byte reports the guarded
-cross-room path: `X00` means it has not been attempted, `XA0` means it passed,
-and `X01` through `X08` identify the refusal stage: epoch mask, saved-census
-generation, volume census, list topology, archive ownership, room streamer,
-model census, or model replacement shape. If `ST` remains zero, photograph the
-short gate name and eight-digit value shown after `G:`; they identify the
-rejected live condition without weakening it. `G:PTCL` specifically means the
-JPA pool ownership or fixed-sentinel audit failed. `G:RNAME` means one of the
-ten room-name picture owners failed its vtable/shape audit. Do not attempt a
-state in either case.
-
-Press D-pad Left once. `S:SAVED` and a nonzero `SZ` confirm a committed slot.
-Change a visible state in the same room, then press D-pad Right once. A good
-first restore says `S:LOADED`. `BUSY`, `BADCRC`, `BADHEAP`, `EPOCH`, or
-`TOOBIG` is a deliberate refusal and should be photographed with the rest of
-the overlay. For a preflight mismatch that reports `EPOCH`, hold Z to open the
-detailed panel. The `E:` row identifies the first differing field, the `M`
-value records every differing preflight field, and the final pair is
-`saved>live`. A later generic refusal can still show `E:NONE M00000000`.
-
-Press D-pad Down while `G:OK` to smoke-test the practice menu. Menu input is
-removed before LM derives its own buttons and sticks, so A/B/D-pad actions do
-not leak into gameplay. Settings are session-only until `SAVE TO CARD` is
-explicitly selected and confirmed. `CLEAR ROOM` deliberately refuses the 13
-rooms whose faithful GaddWarp recipe requires a reload; those will be added
-with the future warp state machine rather than approximated in place.
-
-With Z held after an `EPOCH` refusal, `V:` shows saved/live member counts, total
-removals and additions, and whether the live order is an exact saved-list
-suffix (`HEAD1`, `HEAD2`, or `HEADN`). Six reserved rows show up to three
-removals followed by three additions. Each row gives object/backing ownership,
-the archive object (`O`), RARC header (`R`), and exact RARC size in bytes. `VR`
-marks saved removals whose object or RARC allocation was reused by an added
-archive; `VC` and `D` compare the current-volume pointer and directory ID. Only
-the guarded ordered-replacement shapes described above can proceed; every
-other mismatch still returns `EPOCH`.
-
-`RM` is LM's streamed room-archive manager. It compares the seven active room
-IDs (`A`), their complete 0x40-byte records (`R`), manager layout (`L`), the
-256-entry room map (`G`), fixed backing pointers (`K`), and transient reconcile
-marks (`M`). `RA` gives the first two changed active slots as
-`slot:saved>live`; `RW` compares the wanted-room set, reports any ordered
-sequence change as `Q`, and prints its first removed and added IDs. `FFFFFFFF`
-means that side has no displayed change. This manager is separate from the
-model archives named in the `V` rows. Its fixed control state is now included
-in the snapshot and its invariants are part of the narrow cross-room guard.
-
-`MM` is the separate 262-entry model-resource owner used by archives such as
-`tenjyo`, `bat`, `rat`, and `door`. It compares both of LM's writable model
-tables, reports their saved/live hashes and the total number of changed model
-indices, then names the first four. `P`, `R`, or `B` after the index means the
-primary table, secondary registry, or both changed. Both tables and their
-fixed output arrays now rewind with the game heap; their census still has to
-pass the guarded cross-room checks before a restore is attempted.
-
-After a same-room restore succeeds, save outside the intended foyer door,
-enter it and wait until Luigi is controllable, load back outside, then touch
-that same door again. Report separately whether the second door animation and
-the following room load complete. If re-entry succeeds, keep walking normally;
-the current target is the delayed failure that appeared only after a good room
-rewind. `S:LOADED` means the guarded raw rewind completed. `EPOCH` means the
-observed transition fell outside this
-experiment's accepted shape; photograph the full diagnostic panel rather than
-retrying through a different transition. If the game crashes, save the
-newest `luigis_mansion_crash_a.txt` or `luigis_mansion_crash_b.txt` from the
-launcher's storage device before the next experiment overwrites the older
-rotating report.
-Whether it raises an exception, hard-locks, or reboots, return the SD card
-before making another successful state and preserve `/ndebug.log`, both
-`/lm_dumps/lm_attempt_a.bin` and `/lm_dumps/lm_attempt_b.bin`, and any fresh
-`luigis_mansion_crash_a/b.txt` report. The two attempt files retain the latest two
-successful-save generations, so another save may overwrite the older test.
-Decode either file or the whole directory without modifying it:
-
-```powershell
-.\venv\Scripts\python.exe scripts\read_lm_dump.py D:\lm_dumps
-```
-
-Replace `D:` with the SD card's drive letter. The parser marks the latest valid
-generation, prints every exact phase record, decodes the persistent
-`epoch_guard=X..` refusal stage plus its reject-summary/identity records, and
-reports a torn final record.
-For roughly two minutes after a load or later save, movement or a button change
-arms exact update tracing; a normal A press at a door also starts the four-second
-transition watch.
+The inherited Sunshine payload remains as porting reference. Its targets are
+hidden unless explicitly configured with `-DLM_BOOTSTRAP=OFF`; never apply
+Sunshine DOL/BPS/mod outputs to Luigi's Mansion.
 
 ## Lineage and credits
 
 - [Moonshine](https://github.com/panther03/moonshine), by Dogecyanide,
-  panther03, and contributors, supplies the savestate and launcher foundation.
+  panther03 and contributors, provides the savestate and launcher foundation.
 - [Nintendont](https://github.com/FIX94/Nintendont) and
-  [Better Nintendont](https://github.com/SuperrSonic/Better-Nintendont) supply
+  [Better Nintendont](https://github.com/SuperrSonic/Better-Nintendont) provide
   the GameCube-on-Wii runtime.
 - [Yasiki](https://github.com/Moddimation/Yasiki),
   [Booldozer](https://github.com/ColinShark/Booldozer), and the Luigi's Mansion
-  decompilation ecosystem provide reverse-engineering reference material.
+  decompilation community provide reverse-engineering references.
 
-This is experimental software. Keep real memory-card data backed up while
-testing early builds.
+The timer artwork originates from Super Mario Sunshine; supplied launcher
+theme assets retain their original provenance. Existing source/license
+notices are retained, including the packaged miniz and LZ4 notices.

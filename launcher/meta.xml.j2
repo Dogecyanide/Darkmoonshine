@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <app version="1">
-	<name>Moonshine Luigi's Mansion</name>
-	<author>Dogecyanide, panther03, Nintendont authors</author>
+	<name>{% if is_lm %}{{ branding.NAME }}{% else %}Moonshine Luigi's Mansion{% endif %}</name>
+	<author>{% if is_lm %}{{ branding.AUTHORS }}{% else %}Dogecyanide, panther03, Nintendont authors{% endif %}</author>
 	<version>{{ version }}</version>
 	<release_date>2026</release_date>
-	<short_description>Experimental GLMJ01 heap savestates</short_description>
-	<long_description>Clean Japanese GLMJ01 revision 0 only. D-pad Left saves; D-pad Right loads; D-pad Down opens the non-warp practice menu.
-{% if regions %}    Bundled payloads: {{ regions | join(", ") | upper }}. Experimental: begin with same-room tests and keep memory-card data backed up.{% else %}    No game-side payload is bundled.{% endif %}</long_description>
+	<short_description>{% if is_lm %}Luigi's Mansion practice tools{% else %}Experimental GLMJ01 heap savestates{% endif %}</short_description>
+	<long_description>Clean Japanese GLMJ01 revision 0 only. D-pad Left saves; D-pad Right loads; D-pad Down opens the practice menu. Use the stick or D-pad to navigate, A to choose, and B to go back.
+{% if regions %}    Bundled payloads: {{ regions | join(", ") | upper }}.{% if is_lm %} Release candidate: follow the included TESTING.md and keep wanted saves backed up.{% else %} Experimental: begin with same-room tests and keep memory-card data backed up.{% endif %}{% else %}    No game-side payload is bundled.{% endif %}</long_description>
 <ahb_access/>
 </app>

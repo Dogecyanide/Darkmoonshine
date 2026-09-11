@@ -4,6 +4,11 @@
 #include "lm_crash.hxx"
 #include "lm_practice.hxx"
 #include "lm_state.hxx"
+#include "lm_tools.hxx"
+#include "lm_warp.hxx"
+#include "lm_colour.hxx"
+#include "lm_preferences.hxx"
+#include "lm_notice.hxx"
 #include "susamune/mod_bin.h"
 
 namespace {
@@ -16,7 +21,7 @@ const u32 kLMRootHeapAddr = 0x804A0B90u;
 const u32 kLMSystemHeapAddr = 0x804A0B94u;
 const u32 kLMGameHeapAddr = 0x804A0B98u;
 const u32 kDirectPrintPtrAddr = 0x804A2088u;
-const u32 kPadStatusAddr = 0x80494778u;
+const u32 kLMDoubleBufferAddr = 0x804A0BBAu;
 
 const u32 kLMFrameBeginAddr = 0x800076D8u;
 const u32 kLMChangeFrameBufferAddr = 0x800077E8u;
@@ -45,7 +50,6 @@ const u32 kDCFlushRangeAddr = 0x801D5E24u;
 const u32 kDirectPrintEraseAddr = 0x801D4294u;
 const u32 kDirectPrintChangeFrameBufferAddr = 0x801D4830u;
 const u32 kDirectPrintDrawStringAddr = 0x801D49F8u;
-const u32 kExpHeapCheckAddr = 0x801CA61Cu;
 const u32 kExpHeapVtable = 0x8038886Cu;
 
 const u32 kModEnd = SUSAMUNE_MOD_BASE_LMJ + SUSAMUNE_MOD_REGION_SIZE;
@@ -56,14 +60,13 @@ const u32 kXfbWidth = 640u;
 const u32 kXfbHeight = 480u;
 const u32 kXfbRowBytes = kXfbWidth * 2u;
 const u32 kXfbSize = kXfbRowBytes * kXfbHeight;
-const u16 kPanelTop = 8u;      // JUT logical rows: 16 physical XFB rows.
-const u32 kHeartbeatTop = 16u; // Raw YUYV path uses physical XFB rows.
+const u16 kPopupLeft = 12u, kPopupTop = 16u;
+const u16 kPopupWidth = 56u, kPopupHeight = 11u;
 const u32 kAnimatedModelSlotCount = 80u;
 const u32 kAnimatedModelSlotSize = 0x11Cu;
 const u32 kAnimatedModelControllerSize = 0x318u;
 const u32 kAnimatedModelPrimaryCapacity = 16u;
 const u32 kAnimatedModelSecondaryCapacity = 10u;
-const u16 kButtonZ = 0x0010u;
 const u32 kCanary[4] = {
     0x474C4D4Au,  // GLMJ
     0x4D454D31u,  // MEM1
@@ -80,8 +83,9 @@ static_assert(kCanaryAddr >=
               "diagnostic canary must stay in the reserved scratch tail");
 static_assert(kCanaryAddr + sizeof(kCanary) <= kModEnd,
               "diagnostic canary exceeds the reserved mod window");
-static_assert(kHeartbeatTop + 16u <= kXfbHeight,
-              "diagnostic heartbeat exceeds the framebuffer");
+static_assert((kPopupTop + kPopupHeight) * 2u <= kXfbHeight &&
+              (kPopupLeft + kPopupWidth) * 2u <= kXfbWidth,
+              "status popup exceeds the framebuffer");
 
 typedef void (*VoidFn)();
 typedef void (*VoidPtrFn)(void *);
@@ -93,7 +97,6 @@ typedef void (*CacheRangeFn)(void *, u32);
 typedef void (*DirectPrintEraseFn)(void *, u16, u16, u16, u16);
 typedef void (*DirectPrintChangeFrameBufferFn)(void *, void *, u16, u16);
 typedef void (*DirectPrintDrawStringFn)(void *, u16, u16, const char *, ...);
-typedef bool (*ExpHeapCheckFn)(void *);
 typedef void (*RetailCall4Fn)(u32, u32, u32, u32);
 
 struct HeapSample {
@@ -108,6 +111,10 @@ bool sCanaryReady;
 bool sCanaryOk;
 bool sHeapCheckReady;
 bool sHeapCheckOk;
+bool sFloorFaultReported;
+bool sCanaryFaultReported;
+void *sPopupXfb;
+bool sPopupSurfaceReady;
 
 inline u32 readWord(u32 address) {
     return *reinterpret_cast<volatile u32 *>(address);
@@ -115,10 +122,6 @@ inline u32 readWord(u32 address) {
 
 inline u8 readByte(u32 address) {
     return *reinterpret_cast<volatile u8 *>(address);
-}
-
-inline u16 readHalf(u32 address) {
-    return *reinterpret_cast<volatile u16 *>(address);
 }
 
 inline void writeWord(u32 address, u32 value) {
@@ -203,7 +206,7 @@ void sampleHeapChecks(const HeapSample &system, const HeapSample &game) {
     if (!system.valid || !game.valid) {
         // LM legitimately tears down and recreates its game heap at room
         // boundaries.  Preserve the last structural result during that gap;
-        // only JKRExpHeap::check itself is allowed to latch corruption.
+        // only a complete bounded allocator check may latch corruption.
         return;
     }
 
@@ -212,192 +215,31 @@ void sampleHeapChecks(const HeapSample &system, const HeapSample &game) {
     }
     sFrames = 0;
 
-    const bool systemOk =
-        reinterpret_cast<ExpHeapCheckFn>(kExpHeapCheckAddr)(
-            reinterpret_cast<void *>(system.pointer));
-    const bool gameOk = reinterpret_cast<ExpHeapCheckFn>(kExpHeapCheckAddr)(
-        reinterpret_cast<void *>(game.pointer));
+    const bool systemOk = LMState::heapHealthy(system.pointer);
+    const bool gameOk = systemOk && LMState::heapHealthy(game.pointer);
     if (!sHeapCheckReady) {
         sHeapCheckReady = true;
         sHeapCheckOk = systemOk && gameOk;
     } else if (!systemOk || !gameOk) {
         sHeapCheckOk = false;
     }
+    if (!systemOk || !gameOk) __builtin_trap();
 }
 
-const char *status(bool ready, bool ok) {
-    return !ready ? "WAIT" : ok ? "OK" : "BAD";
-}
-
-u32 displayKiB(u32 bytes) {
-    const u32 kib = bytes >> 10;
-    // JUTDirectPrint's retail formatter owns a 256-byte buffer.  Valid LM
-    // heaps are far below this cap; clamping also keeps a corrupted return
-    // value from lengthening the diagnostic string beyond that buffer.
-    return kib <= 99999u ? kib : 99999u;
-}
-
-void drawPanel(void *directPrint, void *xfb) {
-    // Runner captures stay readable after a refused load. Hold Z while the
-    // status is EPOCH to reveal the full guard census for an on-screen photo;
-    // the same refusal is always preserved in the SD journal either way.
-    const bool showModel = !LMPractice::isOpen() &&
-        LMState::status() == LMState::Status::Epoch &&
-        (readHalf(kPadStatusAddr) & kButtonZ) != 0u;
-    const u16 panelHeight = showModel ? 142u : 18u;
-
-    // JUTDirectPrint writes its built-in 6x7 font straight into the copied
-    // YUYV framebuffer.  It has no resource-font or heap dependency.  At a
-    // 640-pixel XFB it treats these as 320x240 logical coordinates.
+void drawStatusPopup(void *directPrint, void *xfb) {
+    const char *message = LMNotice::text();
+    if (!*message || LMPractice::isOpen()) return;
+    // Retail coordinates are doubled: a 112x22 physical-pixel notice, inset
+    // 24 pixels horizontally and 32 vertically to clear TV overscan.
     reinterpret_cast<DirectPrintChangeFrameBufferFn>(
-        kDirectPrintChangeFrameBufferAddr)(directPrint, xfb, kXfbWidth,
-                                            kXfbHeight);
+        kDirectPrintChangeFrameBufferAddr)(directPrint, xfb, kXfbWidth, kXfbHeight);
     reinterpret_cast<DirectPrintEraseFn>(kDirectPrintEraseAddr)(
-        directPrint, 0, kPanelTop, 320, panelHeight);
+        directPrint, kPopupLeft, kPopupTop, kPopupWidth, kPopupHeight);
     reinterpret_cast<DirectPrintDrawStringFn>(kDirectPrintDrawStringAddr)(
-        directPrint, 2, kPanelTop + 2u,
-        "LM STATE X0.3.29 F:%s C:%s H:%s X%02lX",
-        status(sFloorObserved, sFloorOk), status(sCanaryReady, sCanaryOk),
-        status(sHeapCheckReady, sHeapCheckOk), LMState::crossRoomGuardCode());
-    reinterpret_cast<DirectPrintDrawStringFn>(kDirectPrintDrawStringAddr)(
-        directPrint, 2, kPanelTop + 9u,
-        "S:%s ST%lu SZ%luK G:%s %08lX DN:MENU", LMState::statusText(),
-        LMState::stableFrames(), displayKiB(LMState::snapshotKiB() << 10),
-        LMState::gateText(), LMState::gateValue());
-    if (!showModel) return;
-
-    reinterpret_cast<DirectPrintDrawStringFn>(kDirectPrintDrawStringAddr)(
-        directPrint, 2, kPanelTop + 16u,
-        "E:%s M%08lX %08lX>%08lX", LMState::epochText(),
-        LMState::epochMask(), LMState::epochSaved(), LMState::epochLive());
-    reinterpret_cast<DirectPrintDrawStringFn>(kDirectPrintDrawStringAddr)(
-        directPrint, 2, kPanelTop + 23u,
-        "V:%s S%lu>L%lu -%lu +%lu F%lu/%lu",
-        LMState::volumeTopologyText(),
-        LMState::volumeSavedCount(), LMState::volumeLiveCount(),
-        LMState::volumeRemovedCount(), LMState::volumeAddedCount(),
-        LMState::volumeSavedFault(), LMState::volumeLiveFault());
-    for (u32 i = 0; i < 6u; ++i) {
-        if (LMState::volumeChangeObject(i) == 0u) continue;
-        reinterpret_cast<DirectPrintDrawStringFn>(kDirectPrintDrawStringAddr)(
-            directPrint, 2, kPanelTop + 30u + i * 7u,
-            "V%s%s %s/%s O%08lX R%08lX %luB",
-            LMState::volumeChangeKind(i), LMState::volumeChangeName(i),
-            LMState::volumeChangeObjectOwnerText(i),
-            LMState::volumeChangeBackingOwnerText(i),
-            LMState::volumeChangeObject(i), LMState::volumeChangeArchive(i),
-            LMState::volumeChangeBytes(i));
-    }
-    reinterpret_cast<DirectPrintDrawStringFn>(kDirectPrintDrawStringAddr)(
-        directPrint, 2, kPanelTop + 72u,
-        "VR O%02lX R%02lX", LMState::volumeObjectReuseMask(),
-        LMState::volumeArchiveReuseMask());
-    reinterpret_cast<DirectPrintDrawStringFn>(kDirectPrintDrawStringAddr)(
-        directPrint, 2, kPanelTop + 79u,
-        "VC %08lX>%08lX D%08lX>%08lX", LMState::volumeSavedCurrent(),
-        LMState::volumeLiveCurrent(), LMState::volumeSavedDir(),
-        LMState::volumeLiveDir());
-    reinterpret_cast<DirectPrintDrawStringFn>(kDirectPrintDrawStringAddr)(
-        directPrint, 2, kPanelTop + 86u,
-        "RM F%lu/%lu A%02lX R%02lX L%lu G%lu K%02lX/%02lX M%02lX/%02lX",
-        LMState::resourceSavedFault(), LMState::resourceLiveFault(),
-        LMState::resourceActiveMismatchMask(),
-        LMState::resourceRecordMismatchMask(),
-        LMState::resourceLayoutChanged(), LMState::resourceMapChanged(),
-        LMState::resourceSavedBackingBadMask(),
-        LMState::resourceLiveBackingBadMask(),
-        LMState::resourceSavedMarkMask(), LMState::resourceLiveMarkMask());
-    const u32 activeSlot0 = LMState::resourceActiveChangeSlot(0u);
-    const u32 activeSlot1 = LMState::resourceActiveChangeSlot(1u);
-    if (activeSlot1 < 7u) {
-        reinterpret_cast<DirectPrintDrawStringFn>(
-            kDirectPrintDrawStringAddr)(
-            directPrint, 2, kPanelTop + 93u,
-            "RA %lu:%08lX>%08lX %lu:%08lX>%08lX", activeSlot0,
-            LMState::resourceActiveSavedId(0u),
-            LMState::resourceActiveLiveId(0u), activeSlot1,
-            LMState::resourceActiveSavedId(1u),
-            LMState::resourceActiveLiveId(1u));
-    } else if (activeSlot0 < 7u) {
-        reinterpret_cast<DirectPrintDrawStringFn>(
-            kDirectPrintDrawStringAddr)(
-            directPrint, 2, kPanelTop + 93u, "RA %lu:%08lX>%08lX",
-            activeSlot0, LMState::resourceActiveSavedId(0u),
-            LMState::resourceActiveLiveId(0u));
-    } else {
-        reinterpret_cast<DirectPrintDrawStringFn>(
-            kDirectPrintDrawStringAddr)(directPrint, 2, kPanelTop + 93u,
-                                        "RA NONE");
-    }
-    reinterpret_cast<DirectPrintDrawStringFn>(kDirectPrintDrawStringAddr)(
-        directPrint, 2, kPanelTop + 100u,
-        "RW %lu>%lu -%lu +%lu Q%lu %08lX>%08lX",
-        LMState::resourceSavedWantedCount(),
-        LMState::resourceLiveWantedCount(),
-        LMState::resourceWantedRemovedCount(),
-        LMState::resourceWantedAddedCount(),
-        LMState::resourceWantedSequenceChanged(),
-        LMState::resourceWantedRemovedId(0u),
-        LMState::resourceWantedAddedId(0u));
-    reinterpret_cast<DirectPrintDrawStringFn>(
-        kDirectPrintDrawStringAddr)(
-        directPrint, 2, kPanelTop + 107u,
-        "MM F%lu/%lu N%lu P%08lX>%08lX R%08lX>%08lX",
-        LMState::modelSavedFault(), LMState::modelLiveFault(),
-        LMState::modelChangedCount(), LMState::modelSavedSignature(),
-        LMState::modelLiveSignature(),
-        LMState::modelSavedRegistrySignature(),
-        LMState::modelLiveRegistrySignature());
-    for (u32 i = 0; i < 4u; ++i) {
-        const u32 modelIndex = LMState::modelChangeIndex(i);
-        if (modelIndex >= 262u) continue;
-        const char *kind = LMState::modelChangeKind(i);
-        if (kind[0] == 'R') {
-            reinterpret_cast<DirectPrintDrawStringFn>(
-                kDirectPrintDrawStringAddr)(
-                directPrint, 2, kPanelTop + 114u + i * 7u,
-                "M%03luR %s %08lX>%08lX %08lX>%08lX", modelIndex,
-                LMState::modelChangeName(i),
-                LMState::modelChangeSavedHandle(i),
-                LMState::modelChangeLiveHandle(i),
-                LMState::modelChangeSavedRegistrySignature(i),
-                LMState::modelChangeLiveRegistrySignature(i));
-        } else {
-            reinterpret_cast<DirectPrintDrawStringFn>(
-                kDirectPrintDrawStringAddr)(
-                directPrint, 2, kPanelTop + 114u + i * 7u,
-                "M%03lu%s %s S%lX>%lX H%07lX>%07lX R%07lX>%07lX",
-                modelIndex, kind, LMState::modelChangeName(i),
-                LMState::modelChangeSavedState(i) & 0xFu,
-                LMState::modelChangeLiveState(i) & 0xFu,
-                LMState::modelChangeSavedHandle(i) & 0x1FFFFFFu,
-                LMState::modelChangeLiveHandle(i) & 0x1FFFFFFu,
-                LMState::modelChangeSavedRoot(i) & 0x1FFFFFFu,
-                LMState::modelChangeLiveRoot(i) & 0x1FFFFFFu);
-        }
-    }
-}
-
-void drawRawHeartbeat(void *xfb, bool directPrintReady) {
-    // This block is deliberately independent of JUTDirectPrint.  If the text
-    // path ever fails, a capture still proves that the post-copy hook ran.
-    // The alternating neutral YUYV pairs are safe on every NTSC capture path.
-    volatile u32 *const words = reinterpret_cast<volatile u32 *>(xfb);
-    const u32 white = 0xEB80EB80u;
-    const u32 black = 0x10801080u;
-    const u32 xPair = (kXfbWidth / 2u) - 16u;
-    const u32 stride = kXfbWidth / 2u;
-    for (u32 y = 0; y < 16u; ++y) {
-        for (u32 x = 0; x < 16u; ++x) {
-            const bool checker = ((x >> 2) ^ (y >> 2)) & 1u;
-            words[(kHeartbeatTop + y) * stride + xPair + x] =
-                (checker == directPrintReady) ? white : black;
-        }
-    }
-    void *const heartbeatStart = reinterpret_cast<u8 *>(xfb) +
-                                 kHeartbeatTop * kXfbRowBytes;
-    reinterpret_cast<CacheRangeFn>(kDCFlushRangeAddr)(heartbeatStart,
-                                                       16u * kXfbRowBytes);
+        directPrint, kPopupLeft + 4u, kPopupTop + 2u, "%s", message);
+    reinterpret_cast<CacheRangeFn>(kDCFlushRangeAddr)(
+        reinterpret_cast<u8 *>(xfb) + kPopupTop * 2u * kXfbRowBytes,
+        kPopupHeight * 2u * kXfbRowBytes);
 }
 
 void sampleDiagnostic(HeapSample *system, HeapSample *game) {
@@ -408,6 +250,13 @@ void sampleDiagnostic(HeapSample *system, HeapSample *game) {
 }
 
 }  // namespace
+
+void LMNotice::present() {
+    if (!sPopupSurfaceReady) return;
+    const u32 directPrint = readWord(kDirectPrintPtrAddr);
+    if (isMem1Range(directPrint, 0x18u))
+        drawStatusPopup(reinterpret_cast<void *>(directPrint), sPopupXfb);
+}
 
 // Replaces GLMJ01's two-instruction OSGetArenaLo getter.  Because patches.py
 // installs a plain branch, returning here goes directly to the retail caller.
@@ -424,13 +273,20 @@ extern "C" void *getArenaLo() {
 // Moonshine uses the same kind of after-draw boundary: restoring from inside
 // GXCopyDisp left LM's VI/retrace tail observing a mixture of two timelines.
 extern "C" void diagnosticChangeFrameBuffer() {
+    sPopupSurfaceReady = false;
     LMState::presenterEnter();
     reinterpret_cast<VoidFn>(kLMChangeFrameBufferAddr)();
     LMState::presenterAfterRetail();
     LMState::presenterBeforeTick();
+    LMWarp::tick();
     LMPractice::tick();
-    LMState::tick(!LMPractice::isOpen());
+    LMPreferences::tick();
+    LMState::tick(!LMPractice::isOpen() && !LMWarp::active());
+    LMTools::tick(LMPractice::isOpen());
+    LMColour::tick();
     LMState::presenterAfterTick();
+    LMNotice::tick();
+    sPopupSurfaceReady = false;
 }
 
 // These main-loop calls are the first useful boundaries after a restore.
@@ -699,9 +555,17 @@ extern "C" void diagnosticCopyDisp(void *xfb, bool clear) {
     LMState::presenterAfterDrawDone();
 
     // Crash registration is lazy because LM's JUTException constructor clears
-    // the callback during early boot. Paint before tick so the diagnostic
-    // remains visible if a requested transaction never returns.
+    // the callback during early boot. All journaling stays enabled even
+    // though the permanent diagnostic panel is no longer drawn.
     LMCrash::init();
+    if (sFloorObserved && !sFloorOk && !sFloorFaultReported) {
+        LMCrash::note(0x130u, readWord(kLMRootHeapAddr), kModEnd);
+        sFloorFaultReported = true;
+    }
+    if (sCanaryReady && !sCanaryOk && !sCanaryFaultReported) {
+        LMCrash::note(0x131u, kCanaryAddr, sizeof(kCanary));
+        sCanaryFaultReported = true;
+    }
 
     const u32 rawAddress = reinterpret_cast<u32>(xfb);
     const u32 segment = rawAddress & 0xC0000000u;
@@ -720,15 +584,25 @@ extern "C" void diagnosticCopyDisp(void *xfb, bool clear) {
         const bool directPrintReady =
             isMem1Range(directPrintAddress, 0x18u);
         if (directPrintReady) {
-            drawPanel(reinterpret_cast<void *>(directPrintAddress), cachedXfb);
-            LMPractice::draw(reinterpret_cast<void *>(directPrintAddress));
+            // Other overlays borrow this binding even when no notice is visible.
+            reinterpret_cast<DirectPrintChangeFrameBufferFn>(
+                kDirectPrintChangeFrameBufferAddr)(reinterpret_cast<void *>(directPrintAddress),
+                    cachedXfb, kXfbWidth, kXfbHeight);
+            LMPractice::draw(reinterpret_cast<void *>(directPrintAddress), cachedXfb);
+            // Native screenshot/menu mode uses the other XFB as a texture.
+            // Its sole display buffer is already being scanned by VI.
+            if (!LMPractice::isOpen() && readByte(kLMDoubleBufferAddr) == 1u) {
+                LMTools::draw(reinterpret_cast<void *>(directPrintAddress), cachedXfb);
+            }
+            drawStatusPopup(reinterpret_cast<void *>(directPrintAddress), cachedXfb);
         }
-        drawRawHeartbeat(cachedXfb, directPrintReady);
+        sPopupXfb = cachedXfb;
+        sPopupSurfaceReady = true;
     }
 
     // The transaction runs from diagnosticChangeFrameBuffer only after LM's
-    // entire VI/retrace presenter tail has completed. Status appears here on
-    // the following frame; a stalled operation leaves the prior frame visible.
+    // entire VI/retrace presenter tail has completed. It can paint its start
+    // notice onto this completed XFB; results appear on the next normal copy.
 }
 
 #endif  // defined(SUSAMUNE_VERSION_LMJ)

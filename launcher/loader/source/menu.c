@@ -42,6 +42,9 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include "ff_utf8.h"
 #include "ShowGameInfo.h"
 #include "susamune_build_id.h"
+#include "SusamuneIni.h"
+#include "susamune/lm_branding.h"
+#include "susamune/mod_bin.h"
 
 // Dark gray for grayed-out menu items.
 #define DARK_GRAY 0x666666FF
@@ -180,6 +183,16 @@ void ShowMessageScreenAndWaitForPower(const char *msg)
 void PrintInfo(void)
 {
 	const char *consoleType = (isWiiVC ? (IsWiiUFastCPU() ? "WiiVC 5x CPU" : "Wii VC") : (IsWiiUFastCPU() ? "WiiU 5x CPU" : (IsWiiU() ? "Wii U" : "Wii")));
+	if (SusaVersionGameID(gIni.version) == SUSAMUNE_MOD_GAME_ID_LMJ)
+	{
+		PrintFormat(DEFAULT_SIZE, BLACK, MENU_POS_X, MENU_POS_Y,
+			LM_BRANDING_NAME " (%s)", consoleType);
+		PrintFormat(DEFAULT_SIZE, BLACK, MENU_POS_X, MENU_POS_Y + 20,
+			"%s", LM_BRANDING_VERSION);
+		PrintFormat(DEFAULT_SIZE, BLACK, MENU_POS_X, MENU_POS_Y + 40,
+			"%s", LM_BRANDING_AUTHORS);
+		return;
+	}
 #ifdef NIN_SPECIAL_VERSION
 	// "Special" version with customizations. (Not mainline!)
 	PrintFormat(DEFAULT_SIZE, BLACK, MENU_POS_X, MENU_POS_Y + 20*0, "Nintendont Loader v%u.%u" NIN_SPECIAL_VERSION " (%s)",
@@ -195,14 +208,15 @@ void PrintInfo(void)
 
 void PrintSusamuneBuild(void)
 {
-	static const char BuildTitle[] = "Moonshine Luigi's Mansion.";
+	const char *BuildTitle = SusaVersionGameID(gIni.version) == SUSAMUNE_MOD_GAME_ID_LMJ ?
+		LM_BRANDING_NAME : "Moonshine Luigi's Mansion.";
 #ifdef LAUNCHER_DISABLE_SUSAMUNE_PATCH
 	static const char BuildChecksum[] = "[bootstrap: no payload].";
 #else
 	static const char BuildChecksum[] = "[" SUSAMUNE_BUILD_CHECKSUM "].";
 #endif
 	PrintFormat(DEFAULT_SIZE, BLACK,
-	            640 - MENU_POS_X - ((int)sizeof(BuildTitle) - 1) * 10,
+	            640 - MENU_POS_X - (int)strlen(BuildTitle) * 10,
 	            426, "%s", BuildTitle);
 	PrintFormat(DEFAULT_SIZE, BLACK,
 	            640 - MENU_POS_X - ((int)sizeof(BuildChecksum) - 1) * 10,

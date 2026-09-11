@@ -39,6 +39,8 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include "SusamuneCfg.h"
 #include "SusamuneCrash.h"
 #include "SusamuneGhost.h"
+#include "LmStateStorage.h"
+#include "LmPreferences.h"
 #include "susamune/susamune_cfg.h"
 
 #include "diskio.h"
@@ -393,6 +395,8 @@ int _main( int argc, char *argv[] )
 	SusamuneCfgInit();
 	SusamuneGhostInit();
 	SusamuneCrashInit();
+	LmStateStorageInit();
+	LmPreferencesInit();
 
 	BootStatus(10, s_size, s_cnt);
 
@@ -536,11 +540,19 @@ int _main( int argc, char *argv[] )
 		{
 			SusamuneCfgService();
 		}
+		else if(LmPreferencesPending())
+		{
+			LmPreferencesService();
+		}
 		/* FatFS is shared with the DI thread, so process one bounded ghost
 		 * slice only when no async read or existing Susamune journal is ready. */
 		else if(SusamuneGhostPending())
 		{
 			SusamuneGhostService();
+		}
+		else if(LmStateStoragePending())
+		{
+			LmStateStorageService();
 		}
 		else if(SaveCard == true) /* DI IRQ indicates we might read async, so dont write at the same time */
 		{

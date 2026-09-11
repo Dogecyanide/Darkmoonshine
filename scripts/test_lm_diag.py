@@ -39,12 +39,14 @@ spec.loader.exec_module(lm_diag)
 class LuigiMansionDiagnosticContracts(unittest.TestCase):
     def test_authenticated_hook_contract(self) -> None:
         hooks = [
-            (entry["lmj"], entry["sym"], entry["type"].name, entry["expected"])
+            (entry["lmj"], entry.get("sym", entry.get("val")),
+             entry["type"].name, entry["expected"])
             for entry in lm_diag.patches
         ]
         self.assertEqual(
             hooks,
             [
+                (0x800E2E08, "lmWarpPrepareAppearance", "BL", 0x48000C15),
                 (0x801D5B5C, "getArenaLo", "B", 0x806DFF38),
                 (0x8000776C, "diagnosticCopyDisp", "BL", 0x481E8CF1),
                 (0x80007828, "diagnosticCopyDisp", "BL", 0x481E8C35),
@@ -76,7 +78,11 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
                 (0x8000B714, "diagnosticGameLoop", "BL", 0x4BFFFDD5),
                 (0x8000B728, "diagnosticOuterCleanup", "BL", 0x4BFFF551),
                 (0x8000B744, "diagnosticOuterRestart", "BL", 0x4BFFA92D),
+                (0x801D2074, 0x38000003, "W32", 0x38000000),
+                (0x801D207C, 0x38600003, "W32", 0x38600000),
                 (0x801D20B4, "diagnosticPadRead", "BL", 0x48012849),
+                (0x8000B918, "diagnosticTimerGameUpdate", "B", 0x7C0802A6),
+                (0x8002B5B4, "diagnosticTimerEventStart", "BL", 0x48039BA5),
             ],
         )
 
@@ -90,6 +96,9 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
                 {"addr": 0x8000B354, "expected": 0x8183001C},
                 {"addr": 0x8000B358, "expected": 0x7D8803A6},
                 {"addr": 0x801D20B0, "expected": 0x387D0018},
+                {"addr": 0x801D2078, "expected": 0x900D158C},
+                {"addr": 0x801D2080, "expected": 0x48013461},
+                {"addr": 0x801D2084, "expected": 0x48012559},
                 {"addr": 0x801E48FC, "expected": 0x7C0802A6},
                 {"addr": 0x801E4900, "expected": 0x3C808049},
                 {"addr": 0x801E4904, "expected": 0x90010004},
@@ -147,7 +156,7 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn("kHeapMetadataStart = 0x3Cu", STATE_SOURCE)
         self.assertIn("kHeapMetadataEnd = 0x84u", STATE_SOURCE)
         self.assertIn("kExpHeapAlignment = 16u", STATE_SOURCE)
-        self.assertIn("kSnapshotVersion = 16u", STATE_SOURCE)
+        self.assertIn("kSnapshotVersion = 28u", STATE_SOURCE)
         self.assertIn("kTransitionHeaderStateStart = 0x803985D4u", STATE_SOURCE)
         self.assertIn("kTransitionHeaderStateEnd = 0x803985E8u", STATE_SOURCE)
         self.assertIn("kTransitionTailStateStart = 0x80398764u", STATE_SOURCE)
@@ -299,10 +308,10 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn("kGameSbss0End = 0x804A0C90u", STATE_SOURCE)
         self.assertIn("kGameSbss1Start = 0x804A0CB0u", STATE_SOURCE)
         self.assertIn("kGameSbss1End = 0x804A1D10u", STATE_SOURCE)
-        self.assertIn("kStateStaticsSize == 0x1619Cu", STATE_SOURCE)
-        self.assertIn("kCameraObjectStateOffset == 0x162E4u", STATE_SOURCE)
+        self.assertIn("kStateStaticsSize == 0x18D6Cu", STATE_SOURCE)
+        self.assertIn("kCameraObjectStateOffset == 0x18EB4u", STATE_SOURCE)
         self.assertIn("kCameraObjectStateSize == 0x300u", STATE_SOURCE)
-        self.assertIn("kHeapDataOffset == 0x16600u", STATE_SOURCE)
+        self.assertIn("kHeapDataOffset == 0x191C0u", STATE_SOURCE)
         self.assertIn("roomActorCount > kRoomActorCapacity", STATE_SOURCE)
         self.assertIn(
             "readWord(kRoomActorTableStart + i * sizeof(u32))", STATE_SOURCE
@@ -472,11 +481,11 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
             KERNEL_CRASH_SOURCE,
         )
         self.assertIn("LMEpochFieldName(mask)", KERNEL_CRASH_SOURCE)
-        self.assertIn(
-            '"LM STATE X0.3.29 F:%s C:%s H:%s X%02lX"', DIAG_SOURCE
+        self.assertNotIn(
+            '"LM STATE X0.3.44 F:%s C:%s H:%s SLOT%lu X%02lX"', DIAG_SOURCE
         )
-        self.assertIn("LMState::crossRoomGuardCode()", DIAG_SOURCE)
-        self.assertIn(
+        self.assertIn("u32 crossRoomGuardCode()", STATE_SOURCE)
+        self.assertNotIn(
             '"E:%s M%08lX %08lX>%08lX"', DIAG_SOURCE
         )
 
@@ -500,7 +509,7 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn("diffVolumeCensus(sSavedVolumeCensus", STATE_SOURCE)
         self.assertIn('return "HEAD1";', STATE_SOURCE)
         self.assertIn('return "HEAD2";', STATE_SOURCE)
-        self.assertIn('"V:%s S%lu>L%lu -%lu +%lu F%lu/%lu"', DIAG_SOURCE)
+        self.assertNotIn('"V:%s S%lu>L%lu -%lu +%lu F%lu/%lu"', DIAG_SOURCE)
         self.assertIn("kVolumeRemovedSlots = kMaxVolumes - 1u", STATE_SOURCE)
         self.assertIn("kVolumeAddedSlots = kMaxVolumes - 1u", STATE_SOURCE)
         self.assertIn("kVolumeDisplayedPerKind = 3u", STATE_SOURCE)
@@ -520,11 +529,11 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn("everyChangedVolumeMatched(matchedRemoved", STATE_SOURCE)
         self.assertNotIn("1u << removed) - 1u", STATE_SOURCE)
         self.assertNotIn("1u << added) - 1u", STATE_SOURCE)
-        self.assertIn('"V%s%s %s/%s O%08lX R%08lX %luB"', DIAG_SOURCE)
-        self.assertIn('"VC %08lX>%08lX D%08lX>%08lX"', DIAG_SOURCE)
+        self.assertNotIn('"V%s%s %s/%s O%08lX R%08lX %luB"', DIAG_SOURCE)
+        self.assertNotIn('"VC %08lX>%08lX D%08lX>%08lX"', DIAG_SOURCE)
         self.assertIn("guardedCrossRoomRestoreAllowed", STATE_SOURCE)
         self.assertIn("repairSavedVolumeList", STATE_SOURCE)
-        self.assertIn("kSnapshotVersion = 16u", STATE_SOURCE)
+        self.assertIn("kSnapshotVersion = 28u", STATE_SOURCE)
         display = STATE_SOURCE.split(
             "const VolumeDescriptor *volumeChangeEntry", 1
         )[1].split("u32 volumeChangeObject", 1)[0]
@@ -534,7 +543,7 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         )
 
     def test_cross_room_rejection_telemetry_is_durable(self) -> None:
-        self.assertIn("kRejectTelemetryRecordCount = 4u", STATE_SOURCE)
+        self.assertIn("kRejectTelemetryRecordCount = 6u", STATE_SOURCE)
         self.assertIn("kRejectTelemetryHoldFrames = 8u", STATE_SOURCE)
         self.assertIn("kRejectSummaryPhase = 0xD0u", STATE_SOURCE)
         self.assertIn("kRejectSavedIdentityPhase = 0xD1u", STATE_SOURCE)
@@ -569,7 +578,7 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
             "void updateStability", 1
         )[0]
         self.assertNotIn("setReject(LMState::Status::Epoch", load)
-        self.assertEqual(load.count("rejectDirectEpoch("), 4)
+        self.assertEqual(load.count("rejectDirectEpoch("), 6)
 
     def test_resource_manager_epoch_census_is_bounded(self) -> None:
         self.assertIn("kResourceMapBase = 0x80398C50u", STATE_SOURCE)
@@ -586,9 +595,9 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn("diffResourceCensus(sSavedResourceCensus", STATE_SOURCE)
         self.assertIn("commitSavedResourceCensus(header->generation);", STATE_SOURCE)
         self.assertIn("saved.wantedIds[i] != live.wantedIds[i]", STATE_SOURCE)
-        self.assertIn('"RM F%lu/%lu A%02lX R%02lX', DIAG_SOURCE)
-        self.assertIn('"RA %lu:%08lX>%08lX', DIAG_SOURCE)
-        self.assertIn('"RW %lu>%lu -%lu +%lu Q%lu', DIAG_SOURCE)
+        self.assertNotIn('"RM F%lu/%lu A%02lX R%02lX', DIAG_SOURCE)
+        self.assertNotIn('"RA %lu:%08lX>%08lX', DIAG_SOURCE)
+        self.assertNotIn('"RW %lu>%lu -%lu +%lu Q%lu', DIAG_SOURCE)
         self.assertIn("{kResourceMapBase, kResourceStateEnd - kResourceMapBase}",
                       STATE_SOURCE)
         self.assertIn("kResourceStateEnd = 0x80398FC8u", STATE_SOURCE)
@@ -612,7 +621,7 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn(
             "kSavedModelCensusMetadataAddress +\n"
             "                          kModelCensusMetadataSize ==\n"
-            "                      SUSAMUNE_MEM2_CFG_PPC_BASE",
+            "                      kSnapshotBase + kSnapshotStorageSize",
             STATE_SOURCE,
         )
         self.assertNotIn("ModelCensus sSavedModelCensus", STATE_SOURCE)
@@ -652,18 +661,17 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn('return "P";', STATE_SOURCE)
         self.assertIn('return "R";', STATE_SOURCE)
         self.assertIn('return "B";', STATE_SOURCE)
-        self.assertIn(
+        self.assertNotIn(
             '"MM F%lu/%lu N%lu P%08lX>%08lX R%08lX>%08lX"',
             DIAG_SOURCE,
         )
-        self.assertIn(
+        self.assertNotIn(
             '"M%03lu%s %s S%lX>%lX H%07lX>%07lX R%07lX>%07lX"',
             DIAG_SOURCE,
         )
-        self.assertIn('"M%03luR %s %08lX>%08lX %08lX>%08lX"', DIAG_SOURCE)
-        self.assertIn("const u16 panelHeight = showModel ? 142u : 18u", DIAG_SOURCE)
-        self.assertIn("if (!showModel) return;", DIAG_SOURCE)
-        self.assertIn("directPrint, 0, kPanelTop, 320, panelHeight", DIAG_SOURCE)
+        self.assertNotIn('"M%03luR %s %08lX>%08lX %08lX>%08lX"', DIAG_SOURCE)
+        self.assertNotIn("showModel", DIAG_SOURCE)
+        self.assertIn("kPopupWidth = 56u, kPopupHeight = 11u", DIAG_SOURCE)
         self.assertNotIn('"ROOT %08lX %08lX-%08lX', DIAG_SOURCE)
         primary_row = (
             f"M{261:03d}B {'x' * 8} SF>F H{0x1FFFFFF:07X}>{0x1FFFFFF:07X} "
@@ -683,14 +691,16 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
                       STATE_SOURCE)
         self.assertIn("kModelRegistryOutputStateEnd = 0x803E3CF8u",
                       STATE_SOURCE)
-        self.assertIn("kSnapshotVersion = 16u", STATE_SOURCE)
+        self.assertIn("kSnapshotVersion = 28u", STATE_SOURCE)
 
     def test_camera_state_tracks_persistent_views_safely(self) -> None:
         self.assertIn("kCameraObjectPointerTable = 0x80399BE0u", STATE_SOURCE)
         self.assertIn("kCameraObjectCount = 3u", STATE_SOURCE)
         self.assertIn("kCameraObjectSize = 0xECu", STATE_SOURCE)
         self.assertIn("bool cameraObjectsValid", STATE_SOURCE)
-        self.assertIn("readWord(record) != target", STATE_SOURCE)
+        self.assertIn("replaced |= savedTargets[i] != target;", STATE_SOURCE)
+        self.assertIn("if (!matchSnapshot || !replaced) return true;", STATE_SOURCE)
+        self.assertIn("LmCameraGameValidate", STATE_SOURCE)
         self.assertIn("captureCameraObjects(live);", STATE_SOURCE)
         self.assertIn("restoreCameraObjects();", STATE_SOURCE)
         self.assertIn("storeCameraObjects();", STATE_SOURCE)
@@ -720,31 +730,25 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         guard = STATE_SOURCE.split(
             "bool guardedCrossRoomRestoreAllowed", 1
         )[1].split("void repairSavedVolumeList", 1)[0]
-        self.assertRegex(
-            guard,
-            r"SUSAMUNE_LM_EPOCH_VOLUME_COUNT\s*\|\s*"
-            r"SUSAMUNE_LM_EPOCH_VOLUME_HEAD",
-        )
-        self.assertIn(
-            "mismatch.mask == 0u || (mismatch.mask & ~allowedMask) != 0u",
-            guard,
-        )
+        self.assertIn("LmStateGameEpochMaskAllowed(mismatch.mask)", guard)
+        self.assertIn("LM_STATE_RELOCATABLE_GAME_ROOT_MASK", guard)
+        self.assertEqual(guard.count("LmStateGameRootsValidate("), 2)
         self.assertEqual((1 << 7) | (1 << 8), 0x180)
-        self.assertIn("orderedVolumeReplacementMatches()", guard)
+        self.assertIn("orderedVolumeReplacementMatches(LmStateGameRootOnlyEpoch(mismatch.mask) != 0)", guard)
         self.assertIn("sVolumeDiff.removedIndices[i]", guard)
         self.assertIn("sVolumeDiff.addedIndices[i]", guard)
         self.assertIn("changedArchiveIsRewindable", guard)
         self.assertIn("sResourceDiff.mapChanged != 0u", guard)
         self.assertNotIn("sSavedResourceCensus.markMask != 0u", guard)
         self.assertNotIn("sLiveResourceCensus.markMask != 0u", guard)
-        self.assertIn("modelReplacementMatches()", guard)
+        self.assertIn("modelReplacementMatches(header, live)", guard)
 
         topology = STATE_SOURCE.split(
             "bool orderedVolumeReplacementMatches", 1
         )[1].split("bool changedArchiveIsRewindable", 1)[0]
         self.assertNotIn("removedIndices[i] != i", topology)
         self.assertNotIn("addedIndices[i] != i", topology)
-        self.assertIn("(removed == 0u && added == 0u)", topology)
+        self.assertIn("(!allowUnchanged && removed == 0u && added == 0u)", topology)
         self.assertNotIn("removed == 0u ||", topology)
         self.assertNotIn("added == 0u ||", topology)
         self.assertIn("sSavedVolumeCensus.entries[savedIndex]", topology)
@@ -861,10 +865,10 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
             "diagnosticNormalDraw",
             "diagnosticPerViewDraw",
         )
-        self.assertEqual(lm_diag.mod_write_count, 22)
+        self.assertEqual(lm_diag.mod_write_count, 27)
         self.assertFalse(
             any(
-                entry["sym"].startswith(removed_prefixes)
+                entry.get("sym", "").startswith(removed_prefixes)
                 for entry in lm_diag.patches
             )
         )
@@ -986,7 +990,8 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         )[1].split('extern "C" void diagnosticFrameBegin', 1)[0]
         self.assertLess(presenter.index("kLMChangeFrameBufferAddr"),
                         presenter.index("LMPractice::tick();"))
-        self.assertIn("LMState::tick(!LMPractice::isOpen());", presenter)
+        self.assertIn("LMState::tick(!LMPractice::isOpen() && !LMWarp::active());", presenter)
+        self.assertLess(presenter.index("LMState::tick"), presenter.index("LMTools::tick"))
         self.assertIn('extern "C" u32 diagnosticPadRead', PRACTICE_SOURCE)
         self.assertIn("kPadReadAddress = 0x801E48FCu", PRACTICE_SOURCE)
         self.assertIn("LMPractice::filterPadRead(statuses);", PRACTICE_SOURCE)
@@ -1056,14 +1061,15 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         self.assertIn("count <= 39u", PRACTICE_SOURCE)
         self.assertIn("count >= 40u", PRACTICE_SOURCE)
 
-    def test_practice_menu_does_not_smuggle_in_warps_or_fake_room_reset(self) -> None:
+    def test_practice_room_reset_uses_the_verified_reload_module(self) -> None:
         self.assertNotIn("0x80063AE4", PRACTICE_SOURCE)
         self.assertNotIn("0x80063B50", PRACTICE_SOURCE)
         self.assertNotIn("0x804A0C24", PRACTICE_SOURCE)
-        self.assertNotIn("RESET ROOM", PRACTICE_SOURCE)
         self.assertIn("THIS ROOM CLEAR NEEDS RELOAD", PRACTICE_SOURCE)
-        self.assertIn("59/72 ROOMS CLEAR WITHOUT RELOAD", PRACTICE_SOURCE)
-        self.assertIn("SAVE TO CARD", PRACTICE_SOURCE)
+        self.assertIn("LMWarp::requestRoomReload(false, sBooSafe)", PRACTICE_SOURCE)
+        self.assertIn("Clear/reset change progress. Press A twice.", PRACTICE_SOURCE)
+        self.assertIn("LmRoomDarkPersistence(readHalf(address))", PRACTICE_SOURCE)
+        self.assertIn("Save game to memory card", PRACTICE_SOURCE)
 
     def test_practice_room_clear_partition_is_complete(self) -> None:
         def array(name: str) -> list[int]:
@@ -1089,11 +1095,8 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         }
         supported = generic | light_only | explicit
         unsupported = set(range(72)) - supported
-        self.assertEqual(len(supported), 59)
-        self.assertEqual(
-            unsupported,
-            {10, 16, 22, 24, 25, 28, 34, 41, 55, 57, 59, 61, 70},
-        )
+        self.assertEqual(len(supported), 72)
+        self.assertEqual(unsupported, set())
         self.assertFalse(generic & light_only)
         self.assertFalse(generic & explicit)
         self.assertFalse(light_only & explicit)
@@ -1114,7 +1117,8 @@ class LuigiMansionDiagnosticContracts(unittest.TestCase):
         copy_wrapper = DIAG_SOURCE.split(
             'extern "C" void diagnosticCopyDisp', 1
         )[1]
-        self.assertIn("drawRawHeartbeat", copy_wrapper)
+        self.assertNotIn("drawRawHeartbeat", copy_wrapper)
+        self.assertIn("drawStatusPopup", copy_wrapper)
         presenter_wrapper = DIAG_SOURCE.split(
             'extern "C" void diagnosticChangeFrameBuffer', 1
         )[1].split('extern "C" void diagnosticFrameBegin', 1)[0]

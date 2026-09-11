@@ -124,6 +124,7 @@ def main():
     ap.add_argument("--linker-script", required=True, help="Linker script (.ld) defining SMS symbols")
     ap.add_argument("--kuribo-home", required=True, help="Kuribo toolchain directory (provides powerpc-eabi-ld)")
     ap.add_argument("--vers", default="jp")
+    ap.add_argument("--runtime", choices=("nintendont", "dolphin"))
     ap.add_argument(
         "--patches-file",
         default=str(Path(__file__).with_name("patches.py")),
@@ -219,6 +220,8 @@ def main():
             expected_words.extend(expected)
 
         manifest = json.loads(out.read_text())
+        if args.runtime:
+            manifest["runtime"] = args.runtime
         if authenticated:
             if any(value is None for value in expected_words):
                 raise ValueError("authenticated manifests require an expected word for every write")

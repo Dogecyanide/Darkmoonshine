@@ -191,6 +191,7 @@ void AfterIOSReload(raw_irq_handler_t handle, u32 rev);
 /** Device mount/unmount. **/
 #include "integer.h"	/* for WCHAR */
 const WCHAR *MountDevice(BYTE pdrv);
+const WCHAR *MountDeviceWithTimeout(BYTE pdrv, int timeoutSeconds);
 int UnmountDevice(BYTE pdrv);
 void CloseDevices(void);
 bool FlushDevices(void);

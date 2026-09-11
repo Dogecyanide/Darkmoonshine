@@ -18,6 +18,14 @@ class PatchType(Enum):
 # preflights the complete set before copying any code or applying any branch,
 # so a different revision fails closed rather than partly injecting.
 patches = [
+    # Preserve the retail appearance-slot and player-construction path while
+    # a menu warp supplies a scene-owned shadow of one luige placement row.
+    {
+        "lmj": 0x800E2E08,
+        "sym": "lmWarpPrepareAppearance",
+        "type": PatchType.BL,
+        "expected": 0x48000C15,
+    },
     # Replace OSGetArenaLo's two-instruction getter.  A plain branch preserves
     # the caller's LR, so getArenaLo() returns directly to the retail caller.
     {
@@ -164,6 +172,23 @@ patches = [
         "type": PatchType.BL,
         "expected": 0x4BFFA92D,
     },
+    # Retail JUTGamePad::init requests analog wire mode 0 (4-bit triggers).
+    # Older Phob 2 firmware replies in mode 3 regardless of that request: the
+    # mode-0 decoder then mistakes L's low nibble for R and R for analog A/B.
+    # Keep both JUT's mode value and PADSetAnalogMode's argument at mode 3.
+    # The retail decoder, calibration, clamp and button mapping stay intact.
+    {
+        "lmj": 0x801D2074,
+        "val": 0x38000003,
+        "type": PatchType.W32,
+        "expected": 0x38000000,
+    },
+    {
+        "lmj": 0x801D207C,
+        "val": 0x38600003,
+        "type": PatchType.W32,
+        "expected": 0x38600000,
+    },
     # Intercept the sole PADRead inside JUTGamePad::read. The wrapper preserves
     # its return value while giving the retail button/stick derivation a neutral
     # port-1 sample whenever the payload-native practice menu owns input.
@@ -172,6 +197,20 @@ patches = [
         "sym": "diagnosticPadRead",
         "type": PatchType.BL,
         "expected": 0x48012849,
+    },
+    # Supplement the native clock only when retail skipped it for a native menu.
+    {
+        "lmj": 0x8000B918,
+        "sym": "diagnosticTimerGameUpdate",
+        "type": PatchType.B,
+        "expected": 0x7C0802A6,
+    },
+    # GaddWarp's Boo clock endpoints, after a successful native event load.
+    {
+        "lmj": 0x8002B5B4,
+        "sym": "diagnosticTimerEventStart",
+        "type": PatchType.BL,
+        "expected": 0x48039BA5,
     },
 ]
 
@@ -187,6 +226,11 @@ checks = [
     {"addr": 0x8000B354, "expected": 0x8183001C},
     {"addr": 0x8000B358, "expected": 0x7D8803A6},
     {"addr": 0x801D20B0, "expected": 0x387D0018},
+    # Bind the wire-mode immediates to JUT's matching global store and the
+    # existing PADSetAnalogMode/PADInit call order; neither call is replaced.
+    {"addr": 0x801D2078, "expected": 0x900D158C},
+    {"addr": 0x801D2080, "expected": 0x48013461},
+    {"addr": 0x801D2084, "expected": 0x48012559},
     # PADRead entry called by the practice-menu wrapper.
     {"addr": 0x801E48FC, "expected": 0x7C0802A6},
     {"addr": 0x801E4900, "expected": 0x3C808049},

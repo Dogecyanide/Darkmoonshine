@@ -188,6 +188,18 @@ static bool DeviceMounted(int dev)
 	return devices[dev] != NULL;
 }
 
+static bool EnsureDeviceMounted(int dev)
+{
+	char message[64];
+	if (dev < DEV_SD || dev > DEV_USB || (dev == DEV_USB && isWiiVC))
+		return false;
+	if (DeviceMounted(dev))
+		return true;
+	snprintf(message, sizeof(message), "Checking %s...", kDevLabel[dev]);
+	ShowMessageScreen(message);
+	return MountDevice(dev) != NULL;
+}
+
 // Which device a stored path lives on, or -1 for the disc drive / a path with
 // no recognisable prefix.
 static int DeviceOfPath(const char *path)
@@ -385,6 +397,7 @@ static int BrowseDevices(u8 version)
 	static const int kRowCount = 3;
 	HeldCounters held;
 	int pos = 0;
+	bool failed[2] = {false, false};
 
 	memset(&held, 0, sizeof(held));
 
@@ -419,10 +432,12 @@ static int BrowseDevices(u8 version)
 				if (!IsWiiU() && !isWiiVC)
 					return -1;
 			}
-			else if (DeviceMounted(pos - 1))
+			else if (EnsureDeviceMounted(pos - 1))
 			{
 				return pos - 1;
 			}
+			else
+				failed[pos - 1] = true;
 		}
 
 		ClearScreen();
@@ -441,7 +456,7 @@ static int BrowseDevices(u8 version)
 			if (i == 0)
 				usable = (!IsWiiU() && !isWiiVC);
 			else
-				usable = DeviceMounted(i - 1);
+				usable = !failed[i - 1] && !(i - 1 == DEV_USB && isWiiVC);
 
 			color = usable ? BLACK : DARK_GRAY;
 
@@ -470,10 +485,15 @@ static int BrowseDevices(u8 version)
 				PrintFormat(DEFAULT_SIZE, MAROON, MENU_POS_X, MENU_POS_Y + 20*14 + 6,
 					    "The disc drive cannot be used on this console.");
 		}
-		else if (!DeviceMounted(pos - 1))
+		else if (failed[pos - 1])
 		{
 			PrintFormat(DEFAULT_SIZE, MAROON, MENU_POS_X, MENU_POS_Y + 20*14 + 6,
-				    "No %s device was detected.", kDevLabel[pos-1]);
+				    "No %s detected. Press A to try again.", kDevLabel[pos-1]);
+		}
+		else if (!DeviceMounted(pos - 1))
+		{
+			PrintFormat(DEFAULT_SIZE, BLACK, MENU_POS_X, MENU_POS_Y + 20*14 + 6,
+				    "Press A to check %s and browse its files.", kDevLabel[pos-1]);
 		}
 		else
 		{
@@ -1063,7 +1083,7 @@ static bool ValidateSelection(void)
 			 "Path has no device prefix: %s", path);
 		return false;
 	}
-	if (!DeviceMounted(dev))
+	if (!EnsureDeviceMounted(dev))
 	{
 		snprintf(ErrorLine, sizeof(ErrorLine),
 			 "%s is not available", kDevLabel[dev]);

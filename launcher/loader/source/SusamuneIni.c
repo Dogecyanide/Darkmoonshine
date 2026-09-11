@@ -21,6 +21,7 @@ output unchanged.
 #include "SusamuneIni.h"
 #include "ff_utf8.h"
 #include "susamune/susamune_cfg.h"
+#include "susamune/lm_branding.h"
 
 // Whole-file buffer. Same ceiling as the kernel's (SusamuneCfg.c): a file
 // bigger than this is refused rather than truncated, since a partial
@@ -304,8 +305,8 @@ static void EmitNintendontSection(FIL *f, int *err)
 }
 
 static const char kIniBanner[] =
-	"; Moonshine Luigi's Mansion settings\r\n"
-	"; [nintendont] is written by Moonshine Luigi's Mansion and is regenerated\r\n"
+	"; " LM_BRANDING_NAME " settings\r\n"
+	"; [nintendont] is written by " LM_BRANDING_NAME " and is regenerated\r\n"
 	"; whenever you leave one of its menus with changes pending, so comments\r\n"
 	"; added inside it are lost. Everything else in this file is preserved.\r\n"
 	";\r\n"
@@ -316,7 +317,7 @@ static const char kIniBanner[] =
 	"; With autoboot = 1 the launcher skips its menu and boots the version\r\n"
 	"; named by `version` straight away. Hold B at startup for the menu.\r\n"
 	";\r\n"
-	"; Game-side settings will be added when the GLMJ01 payload exists.\r\n"
+	"; [lm_preferences] stores the in-game preferences.\r\n"
 	"\r\n";
 
 // ---------------------------------------------------------------------
