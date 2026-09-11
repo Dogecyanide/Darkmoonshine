@@ -2,6 +2,7 @@
 
 #include "Dolphin/OS.h"
 #include "susamune/crash_report.h"
+#include "susamune/lm_crash_telemetry.h"
 #include "susamune/mod_bin.h"
 
 #if defined(SUSAMUNE_VERSION_LMJ)
@@ -63,6 +64,17 @@ inline void storeRange(void *address, u32 size) {
     reinterpret_cast<CacheRangeFn>(kDCStoreRangeAddr)(address, size);
 }
 
+void criticalInvalidate(void *address, unsigned int size) {
+    invalidateRange(address, size);
+}
+
+void publishRange(void *address, unsigned int size) {
+    storeRange(address, size);
+    asm volatile("sync" ::: "memory");
+}
+
+const LmCriticalIo kCriticalIo = {criticalInvalidate, publishRange};
+
 void readTimeBase(unsigned int *high, unsigned int *low) {
     unsigned int nextHigh;
     do {
@@ -76,7 +88,11 @@ bool readableRange(u32 address, u32 size) {
     if (size == 0 || address + size < address) {
         return false;
     }
-    return (address >= kMem1Start && address + size <= kMem1End) ||
+    return
+#if IS_EMULATOR
+           (address >= 0x70000000u && address + size <= 0x72000000u) ||
+#endif
+           (address >= kMem1Start && address + size <= kMem1End) ||
            (address >= kMem2Start && address + size <= kMem2End);
 }
 
@@ -169,6 +185,17 @@ void captureLmState(SusamuneCrashReport *report) {
     }
 }
 
+int copyEffectObject(void *out, unsigned int address, unsigned int size) {
+    return copyReadable(out, address, size);
+}
+
+void captureEffectObjects(SusamuneCrashReport *report) {
+    LmEffectAux *aux = reinterpret_cast<LmEffectAux *>(
+        report->directorWindow + LM_EFFECT_AUX_OFFSET);
+    if (LmCaptureEffectAux(aux, report->srr0, report->gpr[26], copyEffectObject))
+        report->captureFlags |= SUSAMUNE_CRASH_FLAG_LM_EFFECT;
+}
+
 void captureException(u16 exception, OSContext *context, u32 dsisr, u32 dar) {
     SusamuneCrashReport *report = SUSAMUNE_CRASH_PPC_PTR;
     if (!sCapturing && context && report->magic == SUSAMUNE_CRASH_MAGIC &&
@@ -200,6 +227,7 @@ void captureException(u16 exception, OSContext *context, u32 dsisr, u32 dar) {
             reinterpret_cast<GetCurrentThreadFn>(kOSGetCurrentThreadAddr)());
 
         captureLmState(report);
+        captureEffectObjects(report);
         captureBacktrace(report, context->mGPR[1]);
 
         report->stackBase = context->mGPR[1];
@@ -256,6 +284,18 @@ void init() {
     }
 
     SusamuneCrashReport *report = SUSAMUNE_CRASH_PPC_PTR;
+#if IS_EMULATOR
+    // Dolphin has no ARM launcher to arm this report. Keep it available to
+    // the debugger; SD journal persistence remains a Nintendont service.
+    clearBytes(report, sizeof(*report));
+    report->magic = SUSAMUNE_CRASH_MAGIC;
+    report->version = SUSAMUNE_CRASH_VERSION;
+    report->reportSize = sizeof(*report);
+    report->state = SUSAMUNE_CRASH_STATE_ARMED;
+    report->gameId = SUSAMUNE_MOD_GAME_ID_LMJ;
+    storeRange(report, sizeof(*report));
+    LmCriticalInit(LM_CRITICAL_PPC_PTR, &kCriticalIo);
+#endif
     invalidateRange(report, sizeof(*report));
     if (report->magic != SUSAMUNE_CRASH_MAGIC ||
         report->version != SUSAMUNE_CRASH_VERSION ||
@@ -264,6 +304,12 @@ void init() {
         report->gameId != SUSAMUNE_MOD_GAME_ID_LMJ) {
         return;
     }
+
+    invalidateRange(LM_CRITICAL_PPC_PTR, sizeof(LmCriticalRing));
+    LmCriticalAttach(LM_CRITICAL_PPC_PTR, &kCriticalIo);
+    invalidateRange(SUSAMUNE_PHASE_TRACE_PPC_PTR, sizeof(SusamunePhaseTrace));
+    if (LmPhaseValid(SUSAMUNE_PHASE_TRACE_PPC_PTR))
+        sPhaseSequence = SUSAMUNE_PHASE_TRACE_PPC_PTR->sequenceBegin;
 
     sPreviousHandler =
         reinterpret_cast<UserCallback>(readWord(kPreUserCallbackAddr));
@@ -305,7 +351,9 @@ void phase(u32 action, u32 phaseValue, u32 arg0, u32 arg1) {
     }
 
     SusamunePhaseTrace *trace = SUSAMUNE_PHASE_TRACE_PPC_PTR;
-    const u32 sequence = (sPhaseSequence += 2u);
+    sPhaseSequence += 2u;
+    if (sPhaseSequence == 0u) sPhaseSequence = 2u;
+    const u32 sequence = sPhaseSequence;
 
     // Publish an invalid odd generation first. The ARM never accepts a cache
     // line caught between the two stores, even if the PPC locks immediately.
@@ -324,6 +372,8 @@ void phase(u32 action, u32 phaseValue, u32 arg0, u32 arg1) {
     trace->sequenceEnd = sequence;
     storeRange(trace, sizeof(*trace));
     asm volatile("sync" ::: "memory");
+    if (LmPhaseCritical(trace))
+        LmCriticalEnqueue(LM_CRITICAL_PPC_PTR, trace, &kCriticalIo);
 }
 
 }  // namespace LMCrash

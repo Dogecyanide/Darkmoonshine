@@ -160,7 +160,8 @@ def build_operations(layout, mod_manifest):
         dol["iso_offset"] + DOL_TEXT_ADDRESS_TABLE + slot * 4: mod_manifest["base_addr"],
         dol["iso_offset"] + DOL_TEXT_SIZE_TABLE + slot * 4: region_size,
     }
-    for address, value in mod_manifest["writes"]:
+    for write in mod_manifest["writes"]:
+        address, value = write[0], write[-1]
         dol_words[hook_iso_offset(layout, address)] = value
     for offset, value in dol_words.items():
         add_operation(operations, offset, "literal", struct.pack(">I", value))
@@ -360,9 +361,6 @@ def create_layout(iso_path, mod_manifest, region):
         node for node in nodes
         if node._fileoffset < expanded_dol_end and node._fileoffset + node.size > dol_end
     ]
-    if not overlapped:
-        raise ValueError("expanded DOL does not overlap a file; layout assumptions changed")
-
     target_cursor = align_up(RELOCATED_FST_OFFSET + disc.bootheader.fstSize, RELOCATED_FILE_ALIGNMENT)
     relocated_files = []
     relocated_offsets = {}
@@ -458,7 +456,7 @@ def main():
     layout = subparsers.add_parser("layout", help="regenerate retail layout metadata")
     layout.add_argument("--iso", required=True)
     layout.add_argument("--mod-manifest", required=True)
-    layout.add_argument("--region", required=True, choices=("jp", "us", "pal"))
+    layout.add_argument("--region", required=True, choices=("jp", "us", "pal", "lmj"))
     layout.add_argument("--output", required=True)
     args = parser.parse_args()
 

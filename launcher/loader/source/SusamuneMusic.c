@@ -11,6 +11,7 @@
 #include "global.h"
 #include "SusamuneMp3Validate.h"
 #include "SusamuneMusic.h"
+#include "SusamuneThemeFiles.h"
 
 #define MUSIC_PATH_MAX    512u
 #define MUSIC_WARNING_MAX 160u
@@ -20,36 +21,6 @@ static s32 sBufferSize;
 static bool sAudioReady;
 static bool sPlaying;
 static char sWarning[MUSIC_WARNING_MAX];
-
-static bool BuildMusicPath(char *out, size_t outSize, const char *device,
-	const char *launchDir)
-{
-	const char *dir = launchDir;
-	const char *colon;
-	size_t dirLen;
-	int written;
-
-	if (out == NULL || outSize == 0 || device == NULL)
-		return false;
-	if (strcmp(device, "sd") != 0 && strcmp(device, "usb") != 0)
-		return false;
-	if (dir == NULL || dir[0] == '\0')
-		dir = "/apps/moonshine_luigis_mansion/";
-	colon = strchr(dir, ':');
-	if (colon != NULL)
-		dir = colon + 1;
-	if (dir[0] == '\0')
-		dir = "/";
-	if (dir[0] != '/' || strchr(dir, ':') != NULL ||
-	    strchr(dir, '\\') != NULL || strstr(dir, "../") != NULL ||
-	    strstr(dir, "/..") != NULL)
-		return false;
-
-	dirLen = strlen(dir);
-	written = snprintf(out, outSize, "%s:%s%stheme/bgm.mp3", device, dir,
-		(dirLen > 0 && dir[dirLen - 1] == '/') ? "" : "/");
-	return written > 0 && (size_t)written < outSize;
-}
 
 static void LogHeap(const char *where)
 {
@@ -79,17 +50,12 @@ bool SusamuneMusicLoad(const char *launcherDevice, const char *launchDir)
 	FRESULT result;
 	UINT got = 0;
 	u32 allocationSize;
+	(void)launchDir;
 
 	sWarning[0] = '\0';
 	if (sBuffer != NULL)
 		return true;
-	if (!BuildMusicPath(path, sizeof(path), launcherDevice, launchDir))
-	{
-		snprintf(sWarning, sizeof(sWarning),
-			"Theme music path is invalid.\nContinuing without music.");
-		return false;
-	}
-	result = f_stat_char(path, &info);
+	result = SusamuneThemeFindFile(path, sizeof(path), launcherDevice, "bgm.mp3", &info);
 	if (result == FR_NO_FILE || result == FR_NO_PATH)
 		return false;
 	if (result != FR_OK)

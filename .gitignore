@@ -1,6 +1,7 @@
 venv/
 build/
 build_memdiag/
+build_diag/
 build-*/
 .cache
 __pycache__/
@@ -11,3 +12,19 @@ __pycache__/
 syms.log
 # Generated mod-injection header (build artifact, lives in build/ at build time)
 launcher/kernel/susamune_inject.h
+
+# Personal hardware handoff scripts and runtime data are not source releases.
+scripts/lm_sd_handoff_*.ps1
+lm_states/
+lm_dumps/
+sd-backups/
+lm-release-staging/
+lm_attempt_*.bin
+luigis_mansion_crash_*.bin
+luigis_mansion_crash_*.txt
+moonshine_lm.ini*
+*.lms
+archive_key*.bin
+
+# Personal launcher music is never part of source or release packages.
+launcher/Darkmoonshine_Theme/bgm.mp3

@@ -8,11 +8,13 @@
     "configurePresets": [
         {
             "name": "release_console",
-            "displayName": "GLMJ01 bootstrap launcher",
+            "displayName": "DarkMoonshine release launcher",
             "generator": "Ninja",
             "binaryDir": "${sourceDir}/build",
             "cacheVariables": {
-                "LM_BOOTSTRAP": "ON"
+                "LM_BOOTSTRAP": "ON",
+                "LM_DIAGNOSTIC": "ON",
+                "LAUNCHER_VERSION": "V1.0.0 Frozen in Time"
             },
             "hidden": false
         },
@@ -29,13 +31,26 @@
         },
         {
             "name": "diagnostic_console",
-            "displayName": "GLMJ01 experimental full-state launcher",
+            "displayName": "DarkMoonshine full practice launcher",
             "generator": "Ninja",
             "binaryDir": "${sourceDir}/build-lm-diag",
             "cacheVariables": {
                 "LM_BOOTSTRAP": "ON",
                 "LM_DIAGNOSTIC": "ON",
-                "LAUNCHER_VERSION": "Full-State Experimental 0.3.29"
+                "LAUNCHER_VERSION": "V1.0.0 Frozen in Time"
+            },
+            "hidden": false
+        },
+        {
+            "name": "diagnostic_emulator",
+            "displayName": "GLMJ01 Dolphin development ISO/BPS",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build-lm-emu",
+            "cacheVariables": {
+                "LM_BOOTSTRAP": "ON",
+                "LM_DIAGNOSTIC": "ON",
+                "LM_EMULATOR": "ON",
+                "LAUNCHER_VERSION": "V1.0.0 Frozen in Time"
             },
             "hidden": false
         }
@@ -56,6 +71,12 @@
             "targets": [
                 "launcher"
             ]
+        },
+        {
+            "name": "emulator",
+            "hidden": false,
+            "configurePreset": "diagnostic_emulator",
+            "targets": ["lm_emulator"]
         }
     ]
 }

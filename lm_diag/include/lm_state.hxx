@@ -2,6 +2,7 @@
 #define LM_DIAG_STATE_HXX
 
 #include "Dolphin/types.h"
+struct PADStatus;
 
 namespace LMState {
 
@@ -19,10 +20,55 @@ enum class Status : u32 {
 // Polls port 1, updates the stability gate, and services one edge-triggered
 // snapshot request. Call only after LM's complete retail presenter returns.
 void tick(bool allowRequests = true);
+// Latch physical edges before JUTGamePad/menu processing changes its sample.
+void samplePad(const PADStatus &pad, bool available);
+// Last closed-menu D-pad tap: buttons, connected, latched action, disposition.
+u32 hotkeyDebug(u32 field);
 
 // True only after the complete heap/stream/card identity has remained stable
 // long enough for a one-shot practice action.
 bool readyForAction();
+// Recheck the current identity/I/O without advancing the frame stability count.
+bool readyForActionNow();
+// Bounded structural check; records the first corrupt address without following it.
+bool heapHealthy(u32 heap);
+
+// Menu requests are serviced at the same post-presenter boundary as hotkeys.
+bool requestSave();
+bool requestLoad();
+u32 slotCount();
+u32 selectedSlot();
+bool selectSlot(u32 slot);
+bool clearSelectedSlot();
+bool slotHasState(u32 slot);
+u32 slotKiB(u32 slot);
+bool requestExport(const char *name = nullptr);
+bool requestImport(u32 archiveId);
+bool requestRename(u32 archiveId, const char *name);
+// Capture ID/token when opening confirmation; stale pages cannot delete files.
+u32 catalogDeleteToken(u32 index);
+bool requestDelete(u32 archiveId, u32 catalogToken);
+bool storageBusy();
+const char *storageText();
+// Eight real files per page; compatibility checks headers, not payload auth.
+bool requestCatalog(u32 afterId = 0u);
+bool catalogBusy();
+u32 catalogCount();
+u32 catalogCursor();
+u32 catalogNextCursor();
+bool catalogHasMore();
+u32 catalogId(u32 index);
+u32 catalogBytes(u32 index);
+bool catalogCompatible(u32 index);
+const char *catalogEntryText(u32 index);
+const char *catalogName(u32 index);
+const char *catalogText();
+u32 packedNeededKiB();
+u32 packedCacheFreeKiB();
+u32 packStagingKiB();
+u32 lastArchiveId();
+u32 timelineRevision();
+u32 loadRevision();
 
 // These keep an eight-frame detailed trace after a successful load, then a
 // low-rate tail with a bounded door/streaming watch. Transition edges re-arm

@@ -1,4 +1,4 @@
-name: Build Moonshine Luigi's Mansion launcher
+name: Build DarkMoonshine release
 
 on:
   release:
@@ -9,10 +9,16 @@ permissions:
 
 jobs:
   build-and-upload:
-    name: GLMJ01 bootstrap launcher
-    # The bundled devkitPro toolchain is Windows-specific.  Pin the runner so
-    # its pre-installed CMake/Ninja versions cannot change unexpectedly.
+    name: Full GLMJ01 practice mod
+    # The bundled devkitPro toolchain is Windows-specific.
     runs-on: windows-2022
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      RELEASE_VERSION: V1.0.0 Frozen in Time
+      RELEASE_ZIP: build-lm-diag/DarkMoonshine-1.0.0-Frozen-in-Time.zip
 
     steps:
       - name: Check out release source
@@ -34,13 +40,78 @@ jobs:
       - name: Install build dependencies
         run: python setup_venv.py
 
-      - name: Configure console build
-        run: cmake --preset release_console
+      - name: Check release packaging contracts
+        run: venv/Scripts/python.exe -m unittest discover -s scripts -p test_lm_release_workflow.py
 
-      - name: Build launcher
-        run: cmake --build --preset console
+      - name: Configure full console mod
+        run: cmake --preset diagnostic_console
+
+      - name: Build mod and launcher
+        run: cmake --build --preset diagnostic
+
+      - name: Package final release with notes and theme
+        run: |
+          $packageArgs = @(
+            'scripts/package_launcher.py',
+            '--boot-dol', 'build-lm-diag/launcher/shared/boot.dol',
+            '--mod-bins', 'build-lm-diag/mod_lmj.bin',
+            '--out-zip', $env:RELEASE_ZIP,
+            '--source', 'sd',
+            '--version', $env:RELEASE_VERSION,
+            '--test-log', 'doc/lm-testing-current.md',
+            '--changelog', 'doc/darkmoonshine-1.0.0.md'
+          )
+          & venv/Scripts/python.exe @packageArgs
+
+      - name: Verify exact release contents
+        run: |
+          @'
+          import os
+          from pathlib import Path
+          import struct
+          import xml.etree.ElementTree as ET
+          import zipfile
+          import zlib
+
+          app = 'moonshine_luigis_mansion'
+          expected = {
+              f'{app}/boot.dol': 'build-lm-diag/launcher/shared/boot.dol',
+              f'{app}/icon.png': 'launcher/icon.png',
+              f'{app}/mod_lmj.bin': 'build-lm-diag/mod_lmj.bin',
+              f'{app}/TESTING.md': 'doc/lm-testing-current.md',
+              f'{app}/CHANGELOG.md': 'doc/darkmoonshine-1.0.0.md',
+              f'{app}/licenses/miniz.txt': 'lm_diag/vendor/miniz/LICENSE',
+              f'{app}/licenses/lz4.txt': 'lm_diag/vendor/lz4/LICENSE',
+              'Darkmoonshine_Theme/background.png': 'launcher/Darkmoonshine_Theme/background.png',
+          }
+
+          def require(condition, message):
+              if not condition:
+                  raise RuntimeError(message)
+
+          with zipfile.ZipFile(os.environ['RELEASE_ZIP']) as package:
+              names = package.namelist()
+              require(len(names) == len(set(names)), 'Duplicate release entries')
+              require(set(names) == set(expected) | {f'{app}/meta.xml'}, 'Unexpected or missing release files')
+              require(package.testzip() is None, 'Release ZIP checksum failure')
+              for name, source in expected.items():
+                  require(package.read(name) == Path(source).read_bytes(), f'Wrong packaged file: {name}')
+              meta = ET.fromstring(package.read(f'{app}/meta.xml'))
+              require(meta.findtext('name') == 'DarkMoonshine', 'Wrong app name')
+              require(meta.findtext('author') == 'Dogecyanide, Nintendont Team', 'Wrong authors')
+              require(meta.findtext('version') == os.environ['RELEASE_VERSION'], 'Wrong release version')
+              mod = package.read(f'{app}/mod_lmj.bin')
+              require(len(mod) >= 36, 'Missing authenticated game mod')
+              magic, version, game, base, code, writes, reserve, size = struct.unpack_from('>8I', mod)
+              require((magic, version, game, base) == (0x534D4F44, 2, 0x474C4D4A, 0x804B8400), 'Wrong mod target')
+              require(code > 0 and writes > 0 and size == len(mod) == 36 + code + 12 * writes, 'Invalid mod extent')
+              require(zlib.crc32(mod[:-4]) == struct.unpack_from('>I', mod, len(mod)-4)[0], 'Mod checksum failure')
+          print('Verified full DarkMoonshine release package')
+          '@ | venv/Scripts/python.exe -
 
       - name: Upload launcher to release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ github.event.release.tag_name }}" "build/moonshine_luigis_mansion_launcher.zip" --clobber
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$env:RELEASE_TAG" "$env:RELEASE_ZIP" --repo "$env:GH_REPO" --clobber

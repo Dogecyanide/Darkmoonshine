@@ -1,11 +1,33 @@
 #if defined(SUSAMUNE_VERSION_LMJ)
 
 #include "lm_state.hxx"
+#include "Dolphin/PAD.h"
 
 #include "lm_crash.hxx"
+#include "lm_rumble.hxx"
+#include "lm_notice.hxx"
+#include "lm_practice.hxx"
 #include "susamune/crash_report.h"
 #include "susamune/mem2_map.h"
 #include "susamune/mod_bin.h"
+#include "susamune/lm_state_storage.h"
+#include "susamune/lm_state_deflate.h"
+#include "susamune/lm_crc32.h"
+#include "susamune/lm_state_auth.h"
+#include "susamune/lm_state_hotkeys.h"
+#include "susamune/lm_shared_archive.h"
+#include "susamune/lm_archive_guard.h"
+#include "susamune/lm_state_resource.h"
+#include "susamune/lm_state_model.h"
+#include "susamune/lm_grain_state.h"
+#include "susamune/lm_state_roots.h"
+#include "susamune/lm_map_archive.h"
+#include "susamune/lm_exp_heap.h"
+#include "susamune/lm_render_targets.h"
+#include "susamune/lm_camera_state.h"
+#include "susamune/lm_persistent_profile.h"
+#include "susamune/lm_audio_idle.h"
+#include "susamune/lm_door_state.h"
 
 // The Kuribo build is deliberately freestanding. Clang may still lower a
 // small aggregate operations to memcpy/memcmp at -Oz, so keep those runtime
@@ -28,6 +50,12 @@ extern "C" int memcmp(const void *left, const void *right, u32 size) {
         }
     }
     return 0;
+}
+
+extern "C" void *memset(void *destination, int value, u32 size) {
+    volatile u8 *out = static_cast<volatile u8 *>(destination);
+    for (u32 i = 0; i < size; ++i) out[i] = static_cast<u8>(value);
+    return destination;
 }
 
 namespace {
@@ -53,6 +81,7 @@ constexpr u32 kGameModeCountGlobal = 0x804A17B4u;
 constexpr u32 kMatrixArrayGlobal = 0x804A17B8u;
 constexpr u32 kBooleanArrayGlobal = 0x804A17BCu;
 constexpr u32 kMissionModeGlobal = 0x804A17C8u;
+constexpr u32 kPlayerVtable = 0x8034EE50u;
 constexpr u32 kSimpleModelerGlobal = 0x804A17D0u;
 constexpr u32 kMapColGlobal = 0x804A17D8u;
 constexpr u32 kEnTypesManagerGlobal = 0x804A17E8u;
@@ -112,7 +141,6 @@ constexpr u32 kAudioBootstrapHandleOffset = 0x64u;
 constexpr u32 kAudioBootstrapSoundId = 0x80000800u;
 
 constexpr u32 kDvdBusyPredicateAddr = 0x80006A5Cu;
-constexpr u32 kExpHeapCheckAddr = 0x801CA61Cu;
 constexpr u32 kDCInvalidateRangeAddr = 0x801D5DF4u;
 constexpr u32 kDCStoreRangeAddr = 0x801D5E58u;
 constexpr u32 kOSDisableInterruptsAddr = 0x801D85B0u;
@@ -128,10 +156,14 @@ constexpr u32 kMemArchiveVtable = 0x80388D5Cu;
 constexpr u32 kRarcMagic = 0x52415243u;  // 'RARC'
 constexpr u32 kMem1Start = 0x80000000u;
 constexpr u32 kMem1End = 0x81800000u;
+#if IS_EMULATOR
+constexpr u32 kSnapshotBase = SUSAMUNE_DOLPHIN_SNAPSHOT_PPC_BASE;
+#else
 constexpr u32 kSnapshotBase = SUSAMUNE_MEM2_SNAPSHOT_PPC_BASE;
+#endif
 constexpr u32 kSnapshotStorageSize = SUSAMUNE_MEM2_SNAPSHOT_SIZE;
 constexpr u32 kSnapshotMagic = 0x4C4D5354u;  // 'LMST'
-constexpr u32 kSnapshotVersion = 16u;
+constexpr u32 kSnapshotVersion = 28u;
 constexpr u32 kHeaderSize = 0x100u;
 constexpr u32 kHeapMetadataStart = 0x3Cu;
 constexpr u32 kHeapMetadataEnd = 0x84u;
@@ -176,11 +208,18 @@ constexpr u32 kRoomActorTableStart = 0x803C8490u;
 constexpr u32 kRoomActorTableEnd = 0x803C8690u;
 constexpr u32 kRoomActorCountGlobal = 0x804A12B8u;
 constexpr u32 kRoomActorCapacity = 0x80u;
+// Room-prop pictures own GAME objects; their view origin must rewind with them.
+constexpr u32 kRoomPropPictureStateStart = 0x803C1C60u;
+constexpr u32 kRoomPropPictureStateEnd = 0x803C1C98u;
 // Door and room effects keep a fixed registry of pointers into the transient
 // animated-model pool. Rewind the owners with their heap-resident slots so a
 // future cleanup cannot retire a slot restored from the saved epoch.
 constexpr u32 kAnimatedModelOwnerStateStart = 0x803C26C8u;
 constexpr u32 kAnimatedModelOwnerStateEnd = 0x803C2D94u;
+// The scene VR archive has a separate fixed model/pane pointer table.
+constexpr u32 kVrSceneOwnerStateStart = 0x803C24E8u;
+constexpr u32 kVrSceneOwnerStateEnd = 0x803C26C8u;
+constexpr u32 kVrSceneArchiveGlobal = 0x804A0F10u;
 // Door-side and room-activation masks are fixed scalar state updated alongside
 // the heap door entries. A rewind must not leave their future-room bits set.
 constexpr u32 kRoomVisibilityMaskStateStart = 0x803C2E10u;
@@ -190,6 +229,20 @@ constexpr u32 kRoomVisibilityMaskStateEnd = 0x803C3030u;
 // in the destination epoch re-arms foyer cutscenes before Luigi reaches a door.
 constexpr u32 kEventActiveStateStart = 0x803C20C8u;
 constexpr u32 kEventActiveStateEnd = 0x803C2138u;
+// RoomInfo caches a borrowed Mission ToolData pointer, room lookup indices and
+// field indices. Map reload rebuilds it; restore it with the GAME-owned table.
+constexpr u32 kRoomInfoStateStart = 0x803C2138u;
+constexpr u32 kRoomInfoStateEnd = 0x803C236Cu;
+// FurnitureInfo borrows a Mission ToolData and caches its JMP field indices
+// plus decoded row properties. Door setup consumes this owner after a rewind.
+constexpr u32 kFurnitureInfoStateStart = 0x803C236Cu;
+constexpr u32 kFurnitureInfoStateEnd = 0x803C2468u;
+// Per-room lookup bytes derived from RoomInfo, and map UI room records/vectors.
+// Both are plain scene scalars; neither range owns a service or hardware queue.
+constexpr u32 kRoomMapLookupStateStart = 0x803C2468u;
+constexpr u32 kRoomMapLookupStateEnd = 0x803C24E8u;
+constexpr u32 kRoomMapUiStateStart = 0x803C1C98u;
+constexpr u32 kRoomMapUiStateEnd = 0x803C20C8u;
 // The room-name presenter keeps ten owned J2DPicture pointers in this fixed
 // wrapper array while the pictures themselves live in the gameplay heap. The
 // retail constructor/destructor treats both adjacent map symbols as one unit.
@@ -200,10 +253,43 @@ constexpr u32 kRoomNameWrapperCount = 10u;
 constexpr u32 kRoomNamePictureOffset = 0x10u;
 constexpr u32 kRoomNameSpareOffset = 0x14u;
 constexpr u32 kRoomNamePictureVtable = 0x802F97DCu;
+// Scene HUD pictures/screens and fade controllers own GAME allocations.
+// The gap between ranges contains a destructor record and boot-owned font.
+constexpr u32 kGbhHudOwnerStateStart = 0x803C3238u;
+constexpr u32 kGbhHudOwnerStateEnd = 0x803C3388u;
+constexpr u32 kHudPictureOwnerStateStart = 0x803C3400u;
+constexpr u32 kHudPictureOwnerStateEnd = 0x803C3730u;
+// Dialogue text, choices, picture owners and channels share captured SBSS cursors.
+constexpr u32 kDialogueOwnerStateStart = 0x803C3730u;
+constexpr u32 kDialogueOwnerStateEnd = 0x803C4448u;
+constexpr u32 kTimerHudOwnerStateStart = 0x803C4448u;
+constexpr u32 kTimerHudOwnerStateEnd = 0x803C4628u;
+constexpr u32 kElementHudOwnerStateStart = 0x803C4718u;
+constexpr u32 kElementHudOwnerStateEnd = 0x803C4868u;
+constexpr u32 kBooRadarOwnerStateStart = 0x803C49C0u;
+constexpr u32 kBooRadarOwnerStateEnd = 0x803C49D8u;
+// Model-render scratch includes a borrowed GAME matrix pointer, not hardware state.
+constexpr u32 kModelRenderContextStateStart = 0x803C4A10u;
+constexpr u32 kModelRenderContextStateEnd = 0x803C4A50u;
+// Scene-owned texture addresses AND embedded GX descriptors must rewind together.
+constexpr u32 kDepthTextureOwnerStateStart = 0x803C4B6Cu;
+constexpr u32 kDepthTextureOwnerStateEnd = 0x803C4C80u;
 // The grain nodes are game-heap allocations, but both circular-list sentinels
 // live in these adjacent BSS managers and must rewind with their node links.
 constexpr u32 kGrainManagerStateStart = 0x803CBAF0u;
 constexpr u32 kGrainManagerStateEnd = 0x803CC460u;
+// Three scene-owned model managers contain roots into the rewound game heap.
+// Skip each intervening 12-byte global-destructor registration record.
+constexpr u32 kModelEffectManager0StateStart = 0x803CC9A4u;
+constexpr u32 kModelEffectManager1StateStart = 0x803CCC58u;
+constexpr u32 kModelEffectManager2StateStart = 0x803CCF0Cu;
+constexpr u32 kModelEffectManagerStateSize = 0x2A8u;
+// Lazy scene manager: include its initialized flag, not its destructor record.
+constexpr u32 kLazyModelEffectStateStart = 0x803CC46Cu;
+constexpr u32 kLazyModelEffectStateEnd = 0x803CC718u;
+// Retained player/effect queries borrow GAME pointers; stop before registration.
+constexpr u32 kPlayerQueryCacheStateStart = 0x803CC718u;
+constexpr u32 kPlayerQueryCacheStateEnd = 0x803CC818u;
 // This scene-effect manager walks game-heap nodes from fixed intrusive-list
 // anchors. 0.3.25's terminal journal stopped inside fn_80155118 while reading
 // this exact manager after a room rewind. Stop at CD4C8; separate globals fill
@@ -334,6 +420,8 @@ constexpr StaticRange kStateStaticRanges[] = {
     {kResourceMapBase, kResourceStateEnd - kResourceMapBase},
     {kRoomEventStateStart, kRoomEventStateEnd - kRoomEventStateStart},
     {kRoomActorTableStart, kRoomActorTableEnd - kRoomActorTableStart},
+    {kRoomPropPictureStateStart,
+     kRoomPropPictureStateEnd - kRoomPropPictureStateStart},
     {kAnimatedModelOwnerStateStart,
      kAnimatedModelOwnerStateEnd - kAnimatedModelOwnerStateStart},
     {kRoomVisibilityMaskStateStart,
@@ -342,10 +430,28 @@ constexpr StaticRange kStateStaticRanges[] = {
      kEventActiveStateEnd - kEventActiveStateStart},
     {kRoomNameOwnerStateStart,
      kRoomNameOwnerStateEnd - kRoomNameOwnerStateStart},
+    {kGbhHudOwnerStateStart, kGbhHudOwnerStateEnd - kGbhHudOwnerStateStart},
+    {kHudPictureOwnerStateStart,
+     kHudPictureOwnerStateEnd - kHudPictureOwnerStateStart},
+    {kDialogueOwnerStateStart, kDialogueOwnerStateEnd - kDialogueOwnerStateStart},
+    {kTimerHudOwnerStateStart, kTimerHudOwnerStateEnd - kTimerHudOwnerStateStart},
+    {kElementHudOwnerStateStart,
+     kElementHudOwnerStateEnd - kElementHudOwnerStateStart},
+    {kBooRadarOwnerStateStart, kBooRadarOwnerStateEnd - kBooRadarOwnerStateStart},
+    {kModelRenderContextStateStart,
+     kModelRenderContextStateEnd - kModelRenderContextStateStart},
+    {kDepthTextureOwnerStateStart, kDepthTextureOwnerStateEnd - kDepthTextureOwnerStateStart},
+    {kVrSceneOwnerStateStart, kVrSceneOwnerStateEnd - kVrSceneOwnerStateStart},
     {kModelOutputStateStart,
      kModelOutputStateEnd - kModelOutputStateStart},
     {kGrainManagerStateStart,
      kGrainManagerStateEnd - kGrainManagerStateStart},
+    {kModelEffectManager0StateStart, kModelEffectManagerStateSize},
+    {kModelEffectManager1StateStart, kModelEffectManagerStateSize},
+    {kModelEffectManager2StateStart, kModelEffectManagerStateSize},
+    {kLazyModelEffectStateStart, kLazyModelEffectStateEnd - kLazyModelEffectStateStart},
+    {kPlayerQueryCacheStateStart,
+     kPlayerQueryCacheStateEnd - kPlayerQueryCacheStateStart},
     {kSceneEffectManagerStateStart,
      kSceneEffectManagerStateEnd - kSceneEffectManagerStateStart},
     {kParticleManagerStateStart,
@@ -359,6 +465,10 @@ constexpr StaticRange kStateStaticRanges[] = {
     {kGameSdata1Start, kGameSdata1End - kGameSdata1Start},
     {kGameSbss0Start, kGameSbss0End - kGameSbss0Start},
     {kGameSbss1Start, kGameSbss1End - kGameSbss1Start},
+    {kRoomInfoStateStart, kRoomInfoStateEnd - kRoomInfoStateStart},
+    {kFurnitureInfoStateStart, kFurnitureInfoStateEnd - kFurnitureInfoStateStart},
+    {kRoomMapLookupStateStart, kRoomMapLookupStateEnd - kRoomMapLookupStateStart},
+    {kRoomMapUiStateStart, kRoomMapUiStateEnd - kRoomMapUiStateStart},
     // Restore the JKR list anchors only after every archive owner table.
     {kVolumeListGlobal, 3u * sizeof(u32)},
     {kCurrentVolumeGlobal, sizeof(u32)},
@@ -388,12 +498,25 @@ constexpr u32 kStateStaticsSize =
     kModelRegistrySize + (kResourceStateEnd - kResourceMapBase) +
     (kRoomEventStateEnd - kRoomEventStateStart) +
     (kRoomActorTableEnd - kRoomActorTableStart) +
+    (kRoomPropPictureStateEnd - kRoomPropPictureStateStart) +
     (kAnimatedModelOwnerStateEnd - kAnimatedModelOwnerStateStart) +
     (kRoomVisibilityMaskStateEnd - kRoomVisibilityMaskStateStart) +
     (kEventActiveStateEnd - kEventActiveStateStart) +
     (kRoomNameOwnerStateEnd - kRoomNameOwnerStateStart) +
+    (kGbhHudOwnerStateEnd - kGbhHudOwnerStateStart) +
+    (kHudPictureOwnerStateEnd - kHudPictureOwnerStateStart) +
+    (kDialogueOwnerStateEnd - kDialogueOwnerStateStart) +
+    (kTimerHudOwnerStateEnd - kTimerHudOwnerStateStart) +
+    (kElementHudOwnerStateEnd - kElementHudOwnerStateStart) +
+    (kBooRadarOwnerStateEnd - kBooRadarOwnerStateStart) +
+    (kModelRenderContextStateEnd - kModelRenderContextStateStart) +
+    (kDepthTextureOwnerStateEnd - kDepthTextureOwnerStateStart) +
+    (kVrSceneOwnerStateEnd - kVrSceneOwnerStateStart) +
     (kModelOutputStateEnd - kModelOutputStateStart) +
     (kGrainManagerStateEnd - kGrainManagerStateStart) + kMainLoopStateSize +
+    3u * kModelEffectManagerStateSize +
+    (kLazyModelEffectStateEnd - kLazyModelEffectStateStart) +
+    (kPlayerQueryCacheStateEnd - kPlayerQueryCacheStateStart) +
     (kSceneEffectManagerStateEnd - kSceneEffectManagerStateStart) +
     (kParticleManagerStateEnd - kParticleManagerStateStart) +
     (kEffectControllerStateEnd - kEffectControllerStateStart) +
@@ -401,7 +524,11 @@ constexpr u32 kStateStaticsSize =
     (kGameSdata0End - kGameSdata0Start) +
     (kGameSdata1End - kGameSdata1Start) +
     (kGameSbss0End - kGameSbss0Start) +
-    (kGameSbss1End - kGameSbss1Start) + 5u * sizeof(u32);
+    (kGameSbss1End - kGameSbss1Start) +
+    (kRoomInfoStateEnd - kRoomInfoStateStart) +
+    (kFurnitureInfoStateEnd - kFurnitureInfoStateStart) +
+    (kRoomMapLookupStateEnd - kRoomMapLookupStateStart) +
+    (kRoomMapUiStateEnd - kRoomMapUiStateStart) + 5u * sizeof(u32);
 constexpr u32 kCameraObjectStateOffset =
     kStateStaticsOffset + kStateStaticsSize;
 constexpr u32 kCameraObjectStateSize =
@@ -450,7 +577,7 @@ constexpr u32 kResourceRecordSize = 0x40u;
 constexpr u32 kResourceSlotSize = 0x70800u;
 constexpr u32 kModelChangeSlots =
     kVolumeRemovedSlots + kVolumeAddedSlots;
-constexpr u32 kRejectTelemetryRecordCount = 4u;
+constexpr u32 kRejectTelemetryRecordCount = 6u;
 constexpr u32 kRejectTelemetryHoldFrames = 8u;
 constexpr u32 kRejectSummaryPhase = 0xD0u;
 constexpr u32 kRejectSavedIdentityPhase = 0xD1u;
@@ -516,7 +643,6 @@ constexpr u32 kEventStateSavePhase = 0x110u;
 constexpr u32 kEventStateLoadPhase = 0x111u;
 
 typedef bool (*BoolFn)();
-typedef bool (*HeapCheckFn)(void *);
 typedef bool (*DisableInterruptsFn)();
 typedef void (*RestoreInterruptsFn)(bool);
 typedef s32 (*SchedulerFn)();
@@ -657,9 +783,11 @@ struct SnapshotHeader {
 
 static_assert(sizeof(SnapshotHeader) == kHeaderSize,
               "LM snapshot header must remain one cache-aligned page");
+#if !IS_EMULATOR
 static_assert(kSnapshotBase + kSnapshotStorageSize ==
                   SUSAMUNE_MEM2_CFG_PPC_BASE,
               "LM state must end before the config/crash mailboxes");
+#endif
 static_assert(kGuardScratchSize < kSnapshotStorageSize,
               "LM guard scratch must fit inside snapshot storage");
 static_assert(kSnapshotBase + kSnapshotCapacity ==
@@ -668,7 +796,7 @@ static_assert(kSnapshotBase + kSnapshotCapacity ==
                       kLiveModelCensusAddress &&
                   kSavedModelCensusMetadataAddress +
                           kModelCensusMetadataSize ==
-                      SUSAMUNE_MEM2_CFG_PPC_BASE,
+                      kSnapshotBase + kSnapshotStorageSize,
               "LM guard scratch must occupy the snapshot tail");
 static_assert((kGuardScratchSize & 31u) == 0u &&
                   kHeapDataOffset < kSnapshotCapacity,
@@ -689,14 +817,31 @@ static_assert(kDvdSecondaryRequestQueue + 0x20u ==
               "LM secondary DVD worker layout drifted");
 static_assert((kHeapDataOffset & 31u) == 0,
               "LM heap payload must be cache-line aligned");
-static_assert(kStateStaticsSize == 0x1619Cu,
+static_assert(kStateStaticsSize == 0x18D6Cu,
               "LM static manifest size drifted");
-static_assert(kCameraObjectStateOffset == 0x162E4u,
+static_assert(kCameraObjectStateOffset == 0x18EB4u,
               "LM camera-object sidecar offset drifted");
 static_assert(kCameraObjectStateSize == 0x300u,
               "LM camera-object sidecar size drifted");
-static_assert(kHeapDataOffset == 0x16600u,
+static_assert(kHeapDataOffset == 0x191C0u,
               "LM static manifest packing drifted");
+static_assert(kEventActiveStateEnd == kRoomInfoStateStart &&
+                  kRoomInfoStateEnd - kRoomInfoStateStart == 0x234u,
+              "LM RoomInfo owner must stop before the adjacent descriptor table");
+static_assert(kRoomInfoStateEnd == kFurnitureInfoStateStart &&
+                  kFurnitureInfoStateEnd - kFurnitureInfoStateStart == 0xFCu &&
+                  kFurnitureInfoStateEnd == kRoomMapLookupStateStart &&
+                  kRoomMapLookupStateEnd - kRoomMapLookupStateStart == 0x80u &&
+                  kRoomMapLookupStateEnd == kVrSceneOwnerStateStart &&
+                  kRoomPropPictureStateEnd == kRoomMapUiStateStart &&
+                  kRoomMapUiStateEnd - kRoomMapUiStateStart == 0x430u &&
+                  kRoomMapUiStateEnd == kEventActiveStateStart,
+              "LM scene lookup family boundaries drifted");
+static_assert(kVrSceneOwnerStateEnd - kVrSceneOwnerStateStart == 0x1E0u &&
+                  kVrSceneOwnerStateEnd == kAnimatedModelOwnerStateStart &&
+                  kVrSceneArchiveGlobal >= kGameSbss1Start &&
+                  kVrSceneArchiveGlobal + 4u <= kGameSbss1End,
+              "LM VR scene owners must be captured together");
 static_assert(kModelTableSnapshotOffset == 0xB50u &&
                   kModelRegistrySnapshotOffset == 0x4088u &&
                   kModelRegistrySnapshotOffset + kModelRegistrySize ==
@@ -736,6 +881,37 @@ static_assert(kCameraDescriptorStateEnd == kResourceMapBase,
               "LM camera descriptors must stop before room resources");
 static_assert(kGrainManagerStateEnd - kGrainManagerStateStart == 0x970u,
               "LM grain-manager snapshot boundary drifted");
+static_assert(kTimerHudOwnerStateEnd - kTimerHudOwnerStateStart == 20u * 0x18u &&
+                  kTimerHudOwnerStateEnd == kRoomNameOwnerStateStart &&
+                  kElementHudOwnerStateStart == kRoomNameOwnerStateEnd &&
+                  kElementHudOwnerStateEnd - kElementHudOwnerStateStart == 14u * 0x18u &&
+                  kBooRadarOwnerStateEnd - kBooRadarOwnerStateStart == 0x18u,
+              "LM scene HUD sibling ownership boundaries drifted");
+static_assert(kDialogueOwnerStateStart == kHudPictureOwnerStateEnd &&
+                  kDialogueOwnerStateEnd == kTimerHudOwnerStateStart &&
+                  kDialogueOwnerStateEnd - kDialogueOwnerStateStart == 0xD18u,
+              "LM dialogue buffers and picture owners must rewind together");
+static_assert(kModelRenderContextStateEnd - kModelRenderContextStateStart == 0x40u,
+              "LM model-render context boundary drifted");
+static_assert(kLazyModelEffectStateStart == kGrainManagerStateEnd + 0xCu &&
+                  kLazyModelEffectStateEnd - kLazyModelEffectStateStart == 0x2ACu,
+              "LM lazy effect must include its flag but exclude registration");
+static_assert(kPlayerQueryCacheStateStart == kLazyModelEffectStateEnd &&
+                  kPlayerQueryCacheStateEnd - kPlayerQueryCacheStateStart == 0x100u,
+              "LM player-query cache must stop before destructor registration");
+static_assert(kGbhHudOwnerStateEnd - kGbhHudOwnerStateStart == 0x150u &&
+                  kHudPictureOwnerStateEnd - kHudPictureOwnerStateStart ==
+                      0x330u &&
+                  kGbhHudOwnerStateEnd == 0x803C3388u &&
+                  kHudPictureOwnerStateStart == 0x803C3400u,
+              "LM HUD snapshot must exclude the destructor/font gap");
+static_assert(kModelEffectManager0StateStart + kModelEffectManagerStateSize ==
+                  kModelEffectManager1StateStart - 0xCu &&
+                  kModelEffectManager1StateStart + kModelEffectManagerStateSize ==
+                  kModelEffectManager2StateStart - 0xCu &&
+                  kModelEffectManager2StateStart + kModelEffectManagerStateSize ==
+                  0x803CD1B4u,
+              "LM model-effect manager destructor exclusions drifted");
 static_assert(kSceneEffectManagerStateEnd -
                       kSceneEffectManagerStateStart ==
                   0x2D4u,
@@ -755,6 +931,9 @@ static_assert(kRoomVisibilityMaskStateEnd -
               "LM room-visibility mask boundary drifted");
 static_assert(kEventActiveStateEnd - kEventActiveStateStart == 0x70u,
               "LM active-event bitmap boundary drifted");
+static_assert(kRoomPropPictureStateEnd - kRoomPropPictureStateStart ==
+                  10u * sizeof(u32) + 0x10u,
+              "LM room-prop picture table and view origin must rewind together");
 static_assert(kRoomNameOwnerStateEnd - kRoomNameOwnerStateStart == 0xF0u,
               "LM room-name owner boundary drifted");
 static_assert(kRoomNameWrapperCount * kRoomNameWrapperSize ==
@@ -837,6 +1016,14 @@ enum class Gate : u32 {
     Card0,
     Card1,
     Audio,
+    Stability,
+    IdentityChanged,
+    Cameras,
+    HeapHealth,
+    RestoreProof,
+    Grain,
+    DoorOwner,
+    Door,
 };
 
 struct EpochMismatch {
@@ -1010,6 +1197,8 @@ static_assert(sizeof(VolumeCensus) == kVolumeCensusRecordSize &&
 LMState::Status sStatus = LMState::Status::Empty;
 LiveIdentity sLastIdentity = {};
 Gate sGate = Gate::Boot;
+Gate sRejectedGate = Gate::Boot;
+u32 sRejectedGateValue;
 EpochMismatch sEpochMismatch = {};
 VolumeCensus &sSavedVolumeCensus =
     *reinterpret_cast<VolumeCensus *>(kSavedVolumeCensusAddress);
@@ -1042,12 +1231,29 @@ RejectTelemetryRecord sRejectTelemetryRecords[kRejectTelemetryRecordCount] = {};
 u32 sRejectTelemetryCount;
 u32 sRejectTelemetryIndex;
 u32 sRejectTelemetryHoldFrames;
+u32 sRejectTelemetryAction = SUSAMUNE_PHASE_ACTION_LOAD;
+u32 sRequestAction;
 bool sHaveIdentity;
 bool sSlotInitialized;
 u32 sStableFrames;
 u32 sSnapshotSize;
 u32 sGeneration;
-u16 sPreviousButtons;
+u32 sTimelineRevision;
+u32 sLoadRevision;
+u32 sMenuRequest;
+void initializeStorage();
+bool storageStartupReady();
+void savedSlotCommitted();
+bool sPersistentKeyReady;
+bool sPersistentLoaded;
+u32 sPersistentConfigId;
+LmPersistentProfile sSavedPersistentProfile, sLivePersistentProfile;
+void serviceStorage();
+bool storageInFlight();
+u32 snapshotStoredSize(const SnapshotHeader *header);
+bool snapshotCompanionValid(const SnapshotHeader *header, u32 storedSize);
+bool sharedArchiveMatchesSnapshot(const SnapshotHeader *header, LmSharedArchiveDescriptor *live);
+LmStateHotkeyLatch sHotkeys = {};
 u32 sGateValue;
 u32 sPostLoadTraceState;
 u32 sPostLoadTraceFrame;
@@ -1063,13 +1269,19 @@ u32 sPostLoadTransitionChangedMask;
 u32 sPostLoadTransitionChangedBefore;
 u32 sPostLoadTransitionChangedAfter;
 u32 sCrossRoomGuard;
+u32 sCrossRoomFault;
+u32 sCrossRoomFaultValue;
+u32 sUnmatchedVolumeIndex = 0xFFFFFFFFu;
+u32 sUnmatchedVolumeObject, sUnmatchedVolumeName, sUnmatchedVolumeBacking;
 
 void traceSavePhase(u32 phase, u32 detail) {
+    sRequestAction = SUSAMUNE_PHASE_ACTION_SAVE;
     LMCrash::note(kEventStateSavePhase, phase, detail);
     LMCrash::phase(SUSAMUNE_PHASE_ACTION_SAVE, phase, detail, sStableFrames);
 }
 
 void traceLoadPhase(u32 phase, u32 detail) {
+    sRequestAction = SUSAMUNE_PHASE_ACTION_LOAD;
     LMCrash::note(kEventStateLoadPhase, phase, detail);
     LMCrash::phase(SUSAMUNE_PHASE_ACTION_LOAD, phase, detail, sStableFrames);
 }
@@ -1094,7 +1306,7 @@ void publishRejectTelemetry() {
     }
     const RejectTelemetryRecord &record =
         sRejectTelemetryRecords[sRejectTelemetryIndex];
-    LMCrash::phase(SUSAMUNE_PHASE_ACTION_LOAD, record.phase, record.arg0,
+    LMCrash::phase(sRejectTelemetryAction, record.phase, record.arg0,
                    record.arg1);
 }
 
@@ -1132,6 +1344,10 @@ bool gateFailure(Gate gate, u32 value, bool report) {
         sGateValue = value;
     }
     return false;
+}
+
+bool gateCheck(bool ok, Gate gate, u32 value) {
+    return ok || gateFailure(gate, value, true);
 }
 
 void gateReady(bool report) {
@@ -1340,6 +1556,35 @@ bool sameIdentity(const LiveIdentity &a, const LiveIdentity &b) {
     return true;
 }
 
+bool doorTransitionReady(const LiveIdentity &identity, bool report) {
+    auto inside = [&](u32 address, u32 size) {
+        return LmDoorRangeInside(address, size,
+                                identity.heapStart, identity.heapEnd) != 0;
+    };
+    // Bounded equivalent of the retail player-0 lookup, without RTTI calls.
+    if (!inside(identity.missionMode, 0xCu))
+        return gateFailure(Gate::DoorOwner, identity.missionMode, report);
+    const u32 manager = readWord(identity.missionMode + 8u);
+    if (!inside(manager, 0xE0Cu))
+        return gateFailure(Gate::DoorOwner, manager, report);
+    const u32 index = readWord(manager + 0xE08u);
+    const u32 count = readWord(kRoomActorCountGlobal);
+    if (count > kRoomActorCapacity || index >= count ||
+        index >= kRoomActorCapacity)
+        return gateFailure(Gate::DoorOwner, index, report);
+    const u32 player = readWord(kRoomActorTableStart + index * sizeof(u32));
+    if (!inside(player, LM_DOOR_CONTROLLER_OFFSET + sizeof(u32)) ||
+        readWord(player) != kPlayerVtable)
+        return gateFailure(Gate::DoorOwner, player, report);
+    const u32 controller = readWord(player + LM_DOOR_CONTROLLER_OFFSET);
+    if (!inside(controller, 0x320u))
+        return gateFailure(Gate::DoorOwner, controller, report);
+    if (LmDoorStateBusy(readWord(controller + LM_DOOR_MODE_OFFSET),
+                        readWord(controller + LM_DOOR_STATE_OFFSET)))
+        return gateFailure(Gate::Door, readWord(controller + 0x31Cu), report);
+    return true;
+}
+
 bool buildIdentity(LiveIdentity *identity, bool report = false) {
     identity->heap = readWord(kGameHeapGlobal);
     identity->rootHeap = readWord(kRootHeapGlobal);
@@ -1483,6 +1728,7 @@ bool buildIdentity(LiveIdentity *identity, bool report = false) {
     if (!isMem1Range(identity->currentScene, sizeof(u32))) {
         return gateFailure(Gate::Scene, identity->currentScene, report);
     }
+    if (!doorTransitionReady(*identity, report)) return false;
     if (identity->mainLoopMode != 2u) {
         return gateFailure(Gate::LoopMode, identity->mainLoopMode, report);
     }
@@ -1639,12 +1885,11 @@ bool ioIdle(bool report = false) {
 }
 
 bool heapsHealthy(const LiveIdentity &identity) {
-    HeapCheckFn check = reinterpret_cast<HeapCheckFn>(kExpHeapCheckAddr);
     return isExpHeap(identity.rootHeap) && isExpHeap(identity.systemHeap) &&
            isExpHeap(identity.heap) &&
-           check(reinterpret_cast<void *>(identity.rootHeap)) &&
-           check(reinterpret_cast<void *>(identity.systemHeap)) &&
-           check(reinterpret_cast<void *>(identity.heap));
+           LMState::heapHealthy(identity.rootHeap) &&
+           LMState::heapHealthy(identity.systemHeap) &&
+           LMState::heapHealthy(identity.heap);
 }
 
 void copyWords(void *destination, const void *source, u32 size) {
@@ -1740,11 +1985,16 @@ u32 cameraObjectRecordAddress(u32 index) {
            index * kCameraObjectRecordSize;
 }
 
+int grainReadWord(void *context, unsigned int address, unsigned int *value);
+
 bool cameraObjectsValid(const LiveIdentity &identity,
                         bool matchSnapshot) {
+    unsigned int liveTargets[kCameraObjectCount], savedTargets[kCameraObjectCount];
+    bool replaced = false;
     for (u32 i = 0; i < kCameraObjectCount; ++i) {
         const u32 target =
             readWord(kCameraObjectPointerTable + i * sizeof(u32));
+        liveTargets[i] = target;
         if (!isMem1ByteRange(target, kCameraObjectSize) ||
             !rangeInside(target, target + kCameraObjectSize,
                          identity.rootHeapStart, identity.rootHeapEnd)) {
@@ -1764,10 +2014,33 @@ bool cameraObjectsValid(const LiveIdentity &identity,
             rangeInside(target, target + kCameraObjectSize,
                         identity.heapStart, identity.heapEnd);
         const u32 capturedSize = readWord(record + sizeof(u32));
-        if (readWord(record) != target ||
-            capturedSize != (inGameHeap ? 0u : kCameraObjectSize)) {
+        savedTargets[i] = readWord(record);
+        if (capturedSize != (inGameHeap ? 0u : kCameraObjectSize)) {
             return false;
         }
+        replaced |= savedTargets[i] != target;
+    }
+    if (!matchSnapshot || !replaced) return true;
+    const SnapshotHeader *header = reinterpret_cast<const SnapshotHeader *>(kSnapshotBase);
+    // Only complete GAME-owned endpoints may change address. Their blocks and
+    // manager roots rewind together; retained camera sidecars still stay exact.
+    for (u32 i = 0u; i < kCameraObjectCount; ++i) {
+        LMCrash::phase(SUSAMUNE_PHASE_ACTION_LOAD, 0xF4u + i,
+                       savedTargets[i], liveTargets[i]);
+        if (readWord(cameraObjectRecordAddress(i) + 4u) != 0u) return false;
+    }
+    unsigned int fault = 0u, value = 0u;
+    if (!LmCameraGameValidate(const_cast<SnapshotHeader *>(header), grainReadWord,
+            savedTargets, header->heapStart, header->heapEnd,
+            header->usedHead, header->usedTail, &fault, &value)) {
+        LMCrash::phase(SUSAMUNE_PHASE_ACTION_LOAD, 0xF7u, fault, value);
+        return false;
+    }
+    if (!LmCameraGameValidate(nullptr, grainReadWord, liveTargets,
+            identity.heapStart, identity.heapEnd, identity.heapUsedHead,
+            identity.heapUsedTail, &fault, &value)) {
+        LMCrash::phase(SUSAMUNE_PHASE_ACTION_LOAD, 0xF8u, fault, value);
+        return false;
     }
     return true;
 }
@@ -1820,6 +2093,52 @@ void captureStaticRanges() {
                   reinterpret_cast<void *>(range.address), range.size);
         offset += range.size;
     }
+}
+
+int grainReadWord(void *context, unsigned int address, unsigned int *value) {
+    if (!isMem1Range(address, sizeof(u32))) return 0;
+    const SnapshotHeader *header = static_cast<const SnapshotHeader *>(context);
+    if (!header) {
+        *value = readWord(address);
+        return 1;
+    }
+    u32 offset = 0u;
+    if (rangeInside(address, address + sizeof(u32),
+                    header->heapStart, header->heapEnd)) {
+        offset = kHeapDataOffset + address - header->heapStart;
+    } else {
+        u32 packed = kStateStaticsOffset;
+        bool found = false;
+        for (u32 i = 0u; i < kStateStaticRangeCount; ++i) {
+            const StaticRange &range = kStateStaticRanges[i];
+            if (rangeInside(address, address + sizeof(u32),
+                            range.address, range.address + range.size)) {
+                offset = packed + address - range.address;
+                found = true;
+                break;
+            }
+            packed += range.size;
+        }
+        if (!found) return 0;
+    }
+    if (offset > header->totalSize ||
+        sizeof(u32) > header->totalSize - offset) return 0;
+    *value = readWord(kSnapshotBase + offset);
+    return 1;
+}
+
+bool grainStateValid(const SnapshotHeader *header, const LiveIdentity &live,
+                     u32 action, u32 phase) {
+    unsigned int fault = 0u, value = 0u;
+    const bool valid = LmGrainValidate(
+        const_cast<SnapshotHeader *>(header), grainReadWord,
+        header ? header->heapStart : live.heapStart,
+        header ? header->heapEnd : live.heapEnd, &fault, &value) != 0;
+    LMCrash::note(action == SUSAMUNE_PHASE_ACTION_SAVE ? kEventStateSavePhase :
+                       kEventStateLoadPhase, phase, fault);
+    LMCrash::phase(action, phase, fault, value);
+    if (!valid) gateFailure(Gate::Grain, fault, true);
+    return valid;
 }
 
 void restoreStaticRanges() {
@@ -2579,7 +2898,7 @@ void diagnoseVolumeEpoch(const SnapshotHeader *header,
     const u32 volumeMask = SUSAMUNE_LM_EPOCH_VOLUME_COUNT |
                            SUSAMUNE_LM_EPOCH_VOLUME_HEAD |
                            SUSAMUNE_LM_EPOCH_VOLUME_TAIL;
-    if ((mask & volumeMask) == 0u ||
+    if ((mask & (volumeMask | LM_STATE_RELOCATABLE_GAME_ROOT_MASK)) == 0u ||
         sSavedVolumeCensus.generation != header->generation) {
         return;
     }
@@ -2587,7 +2906,7 @@ void diagnoseVolumeEpoch(const SnapshotHeader *header,
     diffVolumeCensus(sSavedVolumeCensus, sLiveVolumeCensus);
 }
 
-bool orderedVolumeReplacementMatches() {
+bool orderedVolumeReplacementMatches(bool allowUnchanged = false) {
     const u32 removed = sVolumeDiff.removedCount;
     const u32 added = sVolumeDiff.addedCount;
     // Walking farther through the mansion can leave only live additions (or
@@ -2596,7 +2915,7 @@ bool orderedVolumeReplacementMatches() {
     // result is not a bounded replacement.
     if (!sVolumeDiff.ready || !sVolumeDiff.savedValid ||
         !sVolumeDiff.liveValid || !sVolumeDiff.commonOrder ||
-        (removed == 0u && added == 0u) || removed > kVolumeRemovedSlots ||
+        (!allowUnchanged && removed == 0u && added == 0u) || removed > kVolumeRemovedSlots ||
         added > kVolumeAddedSlots || removed + added > kModelChangeSlots ||
         sSavedVolumeCensus.count < removed ||
         sLiveVolumeCensus.count < added) {
@@ -2661,84 +2980,156 @@ bool orderedVolumeReplacementMatches() {
 }
 
 bool changedArchiveIsRewindable(const VolumeDescriptor &entry,
-                                const LiveIdentity &identity) {
+                                const LiveIdentity &identity,
+                                const LmSharedArchiveDescriptor &shared) {
     // The heap-pointer fields inside JKRMemArchive do not consistently name
     // the allocator that owns its object/backing buffer.  What matters for the
     // raw rewind is that both byte ranges are inside the captured game heap.
-    const u32 requiredFlags =
-        kVolumeArchiveValid | kVolumeRarcValid | kVolumeMounted;
-    const u32 objectLocation =
-        (entry.ownerFlags >> kVolumeObjectLocationShift) & kVolumeOwnerMask;
-    const u32 backingLocation =
-        (entry.ownerFlags >> kVolumeBackingLocationShift) & kVolumeOwnerMask;
-    return entry.vtable == kMemArchiveVtable &&
-           entry.node == entry.object + 0x18u &&
-           objectLocation == kVolumeOwnerGame &&
-           backingLocation == kVolumeOwnerGame &&
-           (entry.stateFlags & requiredFlags) == requiredFlags &&
-           entry.fileLength >= 0x20u &&
-           classifyVolumeRange(entry.archiveHeader, entry.fileLength,
-                               identity) == kVolumeOwnerGame;
+    const LmArchiveGuardEntry record = {entry.node, entry.object, entry.vtable,
+        entry.stateFlags, entry.archiveHeader, entry.fileLength, entry.ownerFlags};
+    u32 reasons = LmArchiveGuardReasons(&record, identity.heapStart, identity.heapEnd,
+                                       kMemArchiveVtable);
+    // Native scene reload rebuilds GAME wrappers borrowing nested files from
+    // the retained SYS parent. Their bytes are now in the mandatory companion.
+    // This admits no SYS wrapper, allocator header, or unrelated SYS resource.
+    if (LmArchiveGuardSharedBackingAllowed(&record, entry.objectOwnerHeap,
+            entry.archiveHeap, entry.type, entry.mountSource, identity.heap, &shared)) {
+        reasons &= ~(LM_ARCHIVE_GUARD_BACKING_LOCATION | LM_ARCHIVE_GUARD_BACKING_RANGE);
+    }
+    if (!reasons) return true;
+    sCrossRoomFault = 0x600u | reasons;
+    sCrossRoomFaultValue = LmArchiveGuardFailureValue(&record, reasons);
+    return false;
 }
 
 bool changedModelWordsAreKnown(u32 index) {
     const u32 primaryFirst = index * (kModelEntrySize / sizeof(u32));
-    for (u32 word = 0u; word < kModelEntrySize / sizeof(u32); ++word) {
-        if (sSavedModelCensus.words[primaryFirst + word] ==
-            sLiveModelCensus.words[primaryFirst + word]) {
-            continue;
-        }
-        const u32 offset = word * sizeof(u32);
-        if (offset != 0x04u && offset != 0x08u && offset != 0x0Cu &&
-            offset != 0x14u && offset != 0x2Cu && offset != 0x30u) {
-            return false;
-        }
-    }
-
     const u32 registryFirst =
         index * (kModelRegistryEntrySize / sizeof(u32));
-    for (u32 word = 0u;
-         word < kModelRegistryEntrySize / sizeof(u32); ++word) {
-        if (sSavedModelCensus.registryWords[registryFirst + word] ==
-            sLiveModelCensus.registryWords[registryFirst + word]) {
-            continue;
-        }
-        const u32 offset = word * sizeof(u32);
-        if (offset != 0x04u && offset != 0x0Cu) {
-            return false;
+    return LmStateModelChangesKnown(sSavedModelCensus.words + primaryFirst,
+        sLiveModelCensus.words + primaryFirst,
+        sSavedModelCensus.registryWords + registryFirst,
+        sLiveModelCensus.registryWords + registryFirst) != 0;
+}
+
+bool crossRoomFault(u32 code, u32 value) {
+    sCrossRoomFault = code;
+    sCrossRoomFaultValue = value;
+    return false;
+}
+
+bool renderTargetsValid(const SnapshotHeader *header, const LiveIdentity &live) {
+    unsigned int fault = 0u, value = 0u;
+    if (LmRenderTargetsValidate(const_cast<SnapshotHeader *>(header), grainReadWord,
+            header ? header->heapStart : live.heapStart,
+            header ? header->heapEnd : live.heapEnd,
+            header ? header->usedHead : live.heapUsedHead,
+            header ? header->usedTail : live.heapUsedTail, &fault, &value)) return true;
+    LMCrash::phase(SUSAMUNE_PHASE_ACTION_POST_LOAD, 0xF3u, fault, value);
+    gateFailure(Gate::RestoreProof, fault, true);
+    return crossRoomFault(header ? 0x44u : 0x45u, fault);
+}
+
+bool everyChangedVolumeMatched(const bool *matched, u32 count,
+                              const VolumeCensus &volumes, const u32 *changes,
+                              bool saved) {
+    for (u32 i = 0u; i < count; ++i) {
+        if (!matched[i]) {
+            if (changes[i] < volumes.count) {
+                const VolumeDescriptor &entry = volumes.entries[changes[i]];
+                sUnmatchedVolumeIndex = (saved ? 0x80000000u : 0u) | changes[i];
+                sUnmatchedVolumeObject = entry.object;
+                sUnmatchedVolumeName = entry.nameHash;
+                sUnmatchedVolumeBacking = entry.archiveHeader;
+            }
+            return crossRoomFault(0x13u, i);
         }
     }
     return true;
 }
 
-bool matchChangedVolumeObject(const VolumeCensus &census,
-                              const u32 *changedIndices, u32 count,
-                              u32 object, bool *matched) {
+u32 savedStaticWord(const SnapshotHeader *header, u32 address) {
+    u32 offset = header->stateStaticsOffset;
+    for (u32 i = 0u; i < kStateStaticRangeCount; ++i) {
+        const StaticRange &range = kStateStaticRanges[i];
+        if (address >= range.address && address - range.address <= range.size - 4u)
+            return readWord(kSnapshotBase + offset + address - range.address);
+        offset += range.size;
+    }
+    return 0u;
+}
+
+bool matchModelEndpoint(const ModelCensusView &models, u32 index,
+                        const VolumeCensus &volumes, const u32 *changes,
+                        u32 count, bool *matched) {
+    const u32 state = modelEntryWord(models, index, 0x30u);
+    const u32 handle = modelEntryWord(models, index, 0x04u);
+    const u32 registryHandle = modelRegistryWord(models, index, 0x04u);
+    const u32 root = modelEntryWord(models, index, 0x08u);
+    const u32 registryRoot = modelRegistryWord(models, index, 0x0Cu);
+    if (state == 0u)
+        return LmStateModelEndpointValid(state, handle, registryHandle,
+                                         root, registryRoot, 0u, 0u) != 0;
     for (u32 i = 0u; i < count; ++i) {
-        const u32 index = changedIndices[i];
-        if (index >= census.count || census.entries[index].object != object) {
-            continue;
-        }
-        if (matched[i]) return false;
+        if (changes[i] >= volumes.count) return false;
+        const VolumeDescriptor &archive = volumes.entries[changes[i]];
+        if (archive.object != handle) continue;
+        if (matched[i] || !LmStateModelEndpointValid(state, handle,
+                registryHandle, root, registryRoot,
+                archive.archiveHeader, archive.fileLength)) return false;
         matched[i] = true;
         return true;
     }
     return false;
 }
 
-bool everyChangedVolumeMatched(const bool *matched, u32 count) {
+bool matchVrArchive(const SnapshotHeader *header, bool saved,
+                    const VolumeCensus &volumes, const u32 *changes,
+                    u32 count, bool *matched) {
+    const u32 handle = saved ? savedStaticWord(header, kVrSceneArchiveGlobal)
+                             : readWord(kVrSceneArchiveGlobal);
+    // The VR archive is not a model-table row. Its sole retained owner and
+    // fixed output table are captured with the GAME-resident private heap.
     for (u32 i = 0u; i < count; ++i) {
-        if (!matched[i]) return false;
+        if (changes[i] >= volumes.count) return false;
+        if (volumes.entries[changes[i]].object != handle) continue;
+        if (matched[i]) return false;
+        matched[i] = true;
     }
     return true;
 }
 
-bool modelReplacementMatches() {
+bool matchMapArchive(const SnapshotHeader *header, const LiveIdentity &live,
+                     bool saved, const VolumeCensus &volumes,
+                     const u32 *changes, u32 count, bool *matched) {
+    const u32 handle = saved ? header->mapArchive : live.mapArchive;
+    for (u32 i = 0u; i < count; ++i) {
+        if (changes[i] >= volumes.count) return false;
+        const VolumeDescriptor &archive = volumes.entries[changes[i]];
+        if (archive.object != handle) continue;
+        if (matched[i]) return false;
+        const LmMapArchiveRoots roots = {
+            saved ? header->missionMode : live.missionMode, handle,
+            archive.archiveHeader, archive.fileLength,
+            saved ? header->heap : live.heap,
+            saved ? header->heapStart : live.heapStart,
+            saved ? header->heapEnd : live.heapEnd,
+            saved ? header->usedHead : live.heapUsedHead,
+            saved ? header->usedTail : live.heapUsedTail};
+        unsigned int fault = 0u, value = 0u;
+        if (!LmMapArchiveValidate(saved ? const_cast<SnapshotHeader *>(header) : nullptr,
+                grainReadWord, &roots, &fault, &value))
+            return crossRoomFault(saved ? 0x46u : 0x47u, fault);
+        matched[i] = true;
+    }
+    return true;
+}
+
+bool modelReplacementMatches(const SnapshotHeader *header, const LiveIdentity &live) {
     const u32 removed = sVolumeDiff.removedCount;
     const u32 added = sVolumeDiff.addedCount;
     if (!sModelDiff.ready || !sModelDiff.savedValid ||
         !sModelDiff.liveValid ||
-        sModelDiff.changedCount != removed + added ||
         sModelDiff.changedCount > kModelChangeSlots) {
         return false;
     }
@@ -2750,7 +3141,7 @@ bool modelReplacementMatches() {
         const u32 liveState = modelEntryWord(sLiveModelCensus, i, 0x30u);
         if ((savedState != 0u && savedState != 3u) ||
             (liveState != 0u && liveState != 3u)) {
-            return false;
+            return crossRoomFault(0x14u, i);
         }
     }
 
@@ -2765,48 +3156,108 @@ bool modelReplacementMatches() {
     for (u32 i = 0u; i < sModelDiff.changedCount; ++i) {
         const ModelChange &change = sModelDiff.changes[i];
         if (change.index >= kModelEntryCount ||
-            change.sourceMask !=
-                (kModelChangedPrimary | kModelChangedRegistry)) {
-            return false;
+            !changedModelWordsAreKnown(change.index)) {
+            return crossRoomFault(0x10u, change.index);
         }
-
-        if (change.savedState == 3u && change.liveState == 0u &&
-            change.savedHandle != 0u && change.liveHandle == 0u) {
-            if (!matchChangedVolumeObject(sSavedVolumeCensus,
-                                          sVolumeDiff.removedIndices, removed,
-                                          change.savedHandle,
-                                          matchedRemoved)) {
-                return false;
-            }
-        } else if (change.savedState == 0u && change.liveState == 3u &&
-                   change.savedHandle == 0u &&
-                   change.liveHandle != 0u) {
-            if (!matchChangedVolumeObject(sLiveVolumeCensus,
-                                          sVolumeDiff.addedIndices, added,
-                                          change.liveHandle,
-                                          matchedAdded)) {
-                return false;
-            }
-        } else {
-            return false;
+        // A full scene reload can recreate the same model ID (3 -> 3).
+        // Prove each side independently instead of equating rows to volumes.
+        if (!matchModelEndpoint(sSavedModelCensus, change.index,
+                                sSavedVolumeCensus,
+                                sVolumeDiff.removedIndices, removed,
+                                matchedRemoved))
+            return crossRoomFault(0x11u, change.index);
+        if (!matchModelEndpoint(sLiveModelCensus, change.index,
+                                sLiveVolumeCensus,
+                                sVolumeDiff.addedIndices, added,
+                                matchedAdded)) {
+            return crossRoomFault(0x12u, change.index);
         }
     }
+    return matchVrArchive(header, true, sSavedVolumeCensus,
+                         sVolumeDiff.removedIndices, removed, matchedRemoved) &&
+           matchVrArchive(header, false, sLiveVolumeCensus,
+                         sVolumeDiff.addedIndices, added, matchedAdded) &&
+           matchMapArchive(header, live, true, sSavedVolumeCensus,
+                         sVolumeDiff.removedIndices, removed, matchedRemoved) &&
+           matchMapArchive(header, live, false, sLiveVolumeCensus,
+                         sVolumeDiff.addedIndices, added, matchedAdded) &&
+           everyChangedVolumeMatched(matchedRemoved, removed, sSavedVolumeCensus,
+                                     sVolumeDiff.removedIndices, true) &&
+           everyChangedVolumeMatched(matchedAdded, added, sLiveVolumeCensus,
+                                     sVolumeDiff.addedIndices, false);
+}
 
-    return everyChangedVolumeMatched(matchedRemoved, removed) &&
-           everyChangedVolumeMatched(matchedAdded, added);
+bool resourceReplacementMatches(const SnapshotHeader *header,
+                                 const LiveIdentity &live) {
+    static_assert(kResourceSlotCount == LM_STATE_RESOURCE_SLOT_COUNT &&
+                      kResourceRecordSize == LM_STATE_RESOURCE_RECORD_SIZE,
+                  "retail room-resource record layout changed");
+    const u32 size = kResourceSlotCount * kResourceRecordSize;
+    const u32 savedBase = sSavedResourceCensus.recordBase;
+    const u32 liveBase = sLiveResourceCensus.recordBase;
+    if (!isMem1Range(savedBase, size) || !isMem1Range(liveBase, size) ||
+        !rangeInside(savedBase, savedBase + size,
+                     header->heapStart, header->heapEnd) ||
+        !rangeInside(liveBase, liveBase + size,
+                     live.heapStart, live.heapEnd)) return crossRoomFault(1u, savedBase);
+
+    const u32 savedOffset = savedBase - header->heapStart;
+    if (savedOffset > header->heapDataSize ||
+        size > header->heapDataSize - savedOffset) return crossRoomFault(1u, savedOffset);
+    const bool matches = LmStateResourceReloadChangesMatch(
+        sResourceDiff.activeMismatchMask, sResourceDiff.recordMismatchMask,
+        sSavedResourceCensus.activeIds, sLiveResourceCensus.activeIds,
+        reinterpret_cast<const u8 *>(
+            kSnapshotBase + header->heapDataOffset + savedOffset),
+        reinterpret_cast<const u8 *>(liveBase),
+        sSavedResourceCensus.bulkBase, sLiveResourceCensus.bulkBase,
+        kResourceSlotSize, header->heapStart, header->heapEnd) != 0;
+    return matches || crossRoomFault(2u, sResourceDiff.recordMismatchMask &
+                                          ~sResourceDiff.activeMismatchMask);
+}
+
+bool resourceLayoutCompatible(const SnapshotHeader *header, const LiveIdentity &live) {
+    if (!sResourceDiff.layoutChanged) return true;
+    // Native scene reload may move the seven-slot allocations. Validate each
+    // entire allocation and captured owner graph, never just an address range.
+    const LmStateResourceRoots savedRoots = {sSavedResourceCensus.recordBase,
+        sSavedResourceCensus.bulkBase, sSavedResourceCensus.slotCount, sSavedResourceCensus.slotSize};
+    const LmStateResourceRoots liveRoots = {sLiveResourceCensus.recordBase,
+        sLiveResourceCensus.bulkBase, sLiveResourceCensus.slotCount, sLiveResourceCensus.slotSize};
+    unsigned int fault = 0u, value = 0u;
+    if (!LmStateResourceRootsValidate(const_cast<SnapshotHeader *>(header), grainReadWord,
+            &savedRoots, header->heapStart, header->heapEnd, &fault, &value))
+        return crossRoomFault(0x42u, fault);
+    if (!LmStateResourceRootsValidate(nullptr, grainReadWord, &liveRoots,
+            live.heapStart, live.heapEnd, &fault, &value))
+        return crossRoomFault(0x43u, fault);
+    return true;
 }
 
 bool guardedCrossRoomRestoreAllowed(const SnapshotHeader *header,
                                     const LiveIdentity &live,
                                     const EpochMismatch &mismatch) {
-    const u32 allowedMask = SUSAMUNE_LM_EPOCH_VOLUME_COUNT |
-                            SUSAMUNE_LM_EPOCH_VOLUME_HEAD;
+    sCrossRoomFault = 0u;
+    sCrossRoomFaultValue = 0u;
     sCrossRoomGuard = kCrossRoomGuardMask;
-    // The epoch mask merely selects the guarded proof.  A same-cardinality
-    // replacement changes only HEAD, while one-sided growth can change COUNT
-    // and HEAD.  Tail or any non-volume identity drift still fails closed.
-    if (mismatch.mask == 0u || (mismatch.mask & ~allowedMask) != 0u) {
+    sUnmatchedVolumeIndex = 0xFFFFFFFFu;
+    // Same-map native reload may relocate captured GAME roots. Map/archive,
+    // scene, audio, OS/SYS identities and volume tail still remain exact.
+    if (!LmStateGameEpochMaskAllowed(mismatch.mask)) {
         return false;
+    }
+    if (mismatch.mask & LM_STATE_RELOCATABLE_GAME_ROOT_MASK) {
+        const LmStateGameRoots savedRoots = {header->missionMode, header->mapArchive,
+            header->gameMode, header->simpleModeler, header->mapCol, header->enTypesManager};
+        const LmStateGameRoots liveRoots = {live.missionMode, live.mapArchive,
+            live.gameMode, live.simpleModeler, live.mapCol, live.enTypesManager};
+        unsigned int fault = 0u, value = 0u;
+        if (!LmStateGameRootsValidate(const_cast<SnapshotHeader *>(header), grainReadWord,
+                &savedRoots, header->heapStart, header->heapEnd, &fault, &value))
+            return crossRoomFault(0x40u, fault);
+        if (!LmStateGameRootsValidate(nullptr, grainReadWord, &liveRoots,
+                live.heapStart, live.heapEnd, &fault, &value))
+            return crossRoomFault(0x41u, fault);
     }
 
     sCrossRoomGuard = kCrossRoomGuardGeneration;
@@ -2829,14 +3280,16 @@ bool guardedCrossRoomRestoreAllowed(const SnapshotHeader *header,
     }
 
     sCrossRoomGuard = kCrossRoomGuardTopology;
-    if (!orderedVolumeReplacementMatches()) return false;
+    if (!orderedVolumeReplacementMatches(LmStateGameRootOnlyEpoch(mismatch.mask) != 0)) return false;
 
     sCrossRoomGuard = kCrossRoomGuardArchive;
+    LmSharedArchiveDescriptor shared;
+    if (!sharedArchiveMatchesSnapshot(header, &shared)) return false;
     for (u32 i = 0u; i < sVolumeDiff.removedCount; ++i) {
         const u32 index = sVolumeDiff.removedIndices[i];
         if (index >= sSavedVolumeCensus.count ||
             !changedArchiveIsRewindable(sSavedVolumeCensus.entries[index],
-                                        live)) {
+                                        live, shared)) {
             return false;
         }
     }
@@ -2844,22 +3297,21 @@ bool guardedCrossRoomRestoreAllowed(const SnapshotHeader *header,
         const u32 index = sVolumeDiff.addedIndices[i];
         if (index >= sLiveVolumeCensus.count ||
             !changedArchiveIsRewindable(sLiveVolumeCensus.entries[index],
-                                        live)) {
+                                        live, shared)) {
             return false;
         }
     }
 
     sCrossRoomGuard = kCrossRoomGuardResource;
     if (!sResourceDiff.ready || !sResourceDiff.savedValid ||
-        !sResourceDiff.liveValid || sResourceDiff.layoutChanged != 0u ||
+        !sResourceDiff.liveValid || !resourceLayoutCompatible(header, live) ||
         sResourceDiff.mapChanged != 0u ||
         sSavedResourceCensus.backingBadMask != 0u ||
         sLiveResourceCensus.backingBadMask != 0u ||
         sSavedResourceCensus.wantedCount != 0u ||
         sLiveResourceCensus.wantedCount != 0u ||
         sResourceDiff.wantedSequenceChanged != 0u ||
-        sResourceDiff.activeMismatchMask !=
-            sResourceDiff.recordMismatchMask) {
+        !resourceReplacementMatches(header, live)) {
         return false;
     }
 
@@ -2869,7 +3321,7 @@ bool guardedCrossRoomRestoreAllowed(const SnapshotHeader *header,
         return false;
     }
     sCrossRoomGuard = kCrossRoomGuardModelShape;
-    if (!modelReplacementMatches()) return false;
+    if (!modelReplacementMatches(header, live)) return false;
 
     sCrossRoomGuard = kCrossRoomGuardAccepted;
     return true;
@@ -2897,11 +3349,7 @@ void repairSavedVolumeList(const SnapshotHeader *header) {
 }
 
 u32 crcByte(u32 crc, u8 byte) {
-    crc ^= byte;
-    for (u32 bit = 0; bit < 8u; ++bit) {
-        crc = (crc >> 1) ^ (0xEDB88320u & (0u - (crc & 1u)));
-    }
-    return crc;
+    return LmCrc32Byte(crc, byte);
 }
 
 u32 snapshotChecksum(const SnapshotHeader *header) {
@@ -2974,7 +3422,23 @@ bool quiesceAudio(const LiveIdentity &identity) {
 
 void setReject(LMState::Status status, u32 detail) {
     sStatus = status;
+    LMNotice::show(status == LMState::Status::Busy ? LM_POPUP_BUSY : LM_POPUP_REJECTED);
+    sRejectedGate = sGate;
+    sRejectedGateValue = sGateValue;
     LMCrash::note(kEventStateReject, static_cast<u32>(status), detail);
+    if (status != LMState::Status::Epoch) {
+        sRejectTelemetryRecords[0] = {
+            0xD3u, (static_cast<u32>(status) << 24) |
+                (static_cast<u32>(sGate) << 16) | (sStableFrames & 0xFFFFu), detail};
+        sRejectTelemetryRecords[1] = {0xD4u, readWord(kMapValueGlobal), readWord(kSceneValueGlobal)};
+        sRejectTelemetryRecords[2] = {0xD5u, sGateValue, readWord(kMainDrawStateGlobal)};
+        sRejectTelemetryRecords[3] = {0xD6u, readWord(kMainLoopModeGlobal), readWord(kMainLoopExitGlobal)};
+        sRejectTelemetryAction = sRequestAction;
+        sRejectTelemetryCount = 4u;
+        sRejectTelemetryIndex = 0u;
+        sRejectTelemetryHoldFrames = kRejectTelemetryHoldFrames;
+        publishRejectTelemetry();
+    }
 }
 
 void clearEpochMismatch(EpochMismatch *mismatch) {
@@ -3101,9 +3565,24 @@ void queueEpochRejectTelemetry(const EpochMismatch &mismatch,
         live.mapValue,
         live.sceneValue,
     };
+    sRejectTelemetryRecords[4] = {0xD7u,
+        (sResourceDiff.activeMismatchMask << 24) |
+        (sResourceDiff.recordMismatchMask << 16) |
+        (sSavedResourceCensus.wantedCount << 8) | sLiveResourceCensus.wantedCount,
+        (sResourceDiff.layoutChanged << 31) | (sResourceDiff.mapChanged << 30) |
+        (sSavedResourceCensus.backingBadMask << 16) |
+        (sLiveResourceCensus.backingBadMask << 8)};
+    sRejectTelemetryRecords[5] = {0xD8u, sCrossRoomFault, sCrossRoomFaultValue};
+    if (sCrossRoomFault == 0x13u && sUnmatchedVolumeIndex != 0xFFFFFFFFu) {
+        LMCrash::phase(SUSAMUNE_PHASE_ACTION_LOAD, 0xD9u,
+                      sUnmatchedVolumeIndex, sUnmatchedVolumeObject);
+        LMCrash::phase(SUSAMUNE_PHASE_ACTION_LOAD, 0xDAu,
+                      sUnmatchedVolumeName, sUnmatchedVolumeBacking);
+    }
     sRejectTelemetryCount = kRejectTelemetryRecordCount;
     sRejectTelemetryIndex = 0u;
     sRejectTelemetryHoldFrames = kRejectTelemetryHoldFrames;
+    sRejectTelemetryAction = SUSAMUNE_PHASE_ACTION_LOAD;
     publishRejectTelemetry();
 }
 
@@ -3141,7 +3620,7 @@ bool basicHeaderValid(const SnapshotHeader *header) {
         header->heapDataSize != header->heapSize || header->heapSize == 0u ||
         header->heapSize > kSnapshotCapacity - kHeapDataOffset ||
         header->totalSize != kHeapDataOffset + header->heapSize ||
-        header->totalSize > kSnapshotCapacity) {
+        header->totalSize > LM_STATE_STORAGE_PAYLOAD_MAX - 0x2000u - 64u) {
         return false;
     }
     const bool plausibleCurrentHeap =
@@ -3199,10 +3678,14 @@ bool basicHeaderValid(const SnapshotHeader *header) {
            header->currentHeapGroup <= 0xFFu;
 }
 
+#include "lm_state_shared.inc"
+
 void initializeSlot() {
     if (sSlotInitialized) {
         return;
     }
+    initializeStorage();
+    if (!storageStartupReady()) return;
     // MEM2 is not a persistent-state format. Invalidate the commit word once
     // per injected payload so a valid-looking slot left by an earlier game
     // session can never be loaded into a fresh process.
@@ -3245,12 +3728,12 @@ bool headerMatchesLive(const SnapshotHeader *header,
            header->systemHeapEnd == live.systemHeapEnd &&
            header->systemHeapSize == live.systemHeapSize &&
            header->currentHeap == live.currentHeap &&
-           header->missionMode == live.missionMode &&
+           (allowGuardedVolumeDrift || header->missionMode == live.missionMode) &&
            header->mapArchive == live.mapArchive &&
            header->mapValue == live.mapValue &&
            header->sceneValue == live.sceneValue &&
            header->currentScene == live.currentScene &&
-           header->gameMode == live.gameMode &&
+           (allowGuardedVolumeDrift || header->gameMode == live.gameMode) &&
            header->gameModeCount == live.gameModeCount &&
            header->heapMode == live.heapMode &&
            header->heapGroup == live.heapGroup &&
@@ -3266,9 +3749,9 @@ bool headerMatchesLive(const SnapshotHeader *header,
            header->mainLoopMode == live.mainLoopMode &&
            header->mainLoopPendingScene == live.mainLoopPendingScene &&
            header->mainDrawState == live.mainDrawState &&
-           header->simpleModeler == live.simpleModeler &&
-           header->mapCol == live.mapCol &&
-           header->enTypesManager == live.enTypesManager &&
+           (allowGuardedVolumeDrift || header->simpleModeler == live.simpleModeler) &&
+           (allowGuardedVolumeDrift || header->mapCol == live.mapCol) &&
+           (allowGuardedVolumeDrift || header->enTypesManager == live.enTypesManager) &&
            (allowGuardedVolumeDrift ||
             (header->volume[0] == live.volume[0] &&
              header->volume[1] == live.volume[1] &&
@@ -3288,18 +3771,47 @@ bool savedPointerCompatible(u32 saved, u32 current,
            saved == current;
 }
 
+bool actionIdentity(LiveIdentity *identity) {
+    if (!buildIdentity(identity, true) || !ioIdle(true)) return false;
+    if (sStableFrames < kRequiredStableFrames)
+        return gateFailure(Gate::Stability, sStableFrames, true);
+    if (!sameIdentity(*identity, sLastIdentity))
+        return gateFailure(Gate::IdentityChanged, identity->heap, true);
+    return true;
+}
+
+bool persistentProfileMatches(const SnapshotHeader *header, const LiveIdentity &live) {
+    if (!sPersistentLoaded && !sSavedPersistentProfile.magic) return true;
+    unsigned int fault = 0u, value = 0u;
+    if (!sPersistentKeyReady || header->mapValue != 2u || header->sceneValue != 2u ||
+        live.mapValue != 2u || live.sceneValue != 2u ||
+        !LmAudioIdleValidate(nullptr, grainReadWord, &fault, &value) ||
+        !LmPersistentCapture(nullptr, grainReadWord, live.rootHeap, live.systemHeap,
+            sPersistentConfigId, header->generation, &sLivePersistentProfile, &fault, &value)) {
+        LMCrash::phase(SUSAMUNE_PHASE_ACTION_LOAD, 0xF9u, fault, value);
+        return false;
+    }
+    if (!LmPersistentMatch(&sSavedPersistentProfile, &sLivePersistentProfile, &fault)) {
+        LMCrash::phase(SUSAMUNE_PHASE_ACTION_LOAD, 0xFAu, fault,
+            fault < sizeof(sLivePersistentProfile) / 4u ?
+                reinterpret_cast<const u32 *>(&sLivePersistentProfile)[fault] : 0u);
+        return false;
+    }
+    return true;
+}
+
 void saveState() {
     clearRejectTelemetry();
     sCrossRoomGuard = kCrossRoomGuardNone;
+    sCrossRoomFault = 0u;
+    sCrossRoomFaultValue = 0u;
     clearEpochMismatch();
     clearVolumeDiff();
     clearResourceDiff();
     clearModelDiff();
     traceSavePhase(0x01u, sStableFrames);
     LiveIdentity preflight;
-    if (sStableFrames < kRequiredStableFrames ||
-        !buildIdentity(&preflight) ||
-        !sameIdentity(preflight, sLastIdentity) || !ioIdle()) {
+    if (!actionIdentity(&preflight)) {
         setReject(LMState::Status::Busy, sStableFrames);
         return;
     }
@@ -3308,6 +3820,7 @@ void saveState() {
         return;
     }
     if (!cameraObjectsValid(preflight, false)) {
+        gateFailure(Gate::Cameras, kCameraObjectPointerTable, true);
         setReject(LMState::Status::Busy, kCameraObjectPointerTable);
         return;
     }
@@ -3321,13 +3834,15 @@ void saveState() {
     }
     traceSavePhase(0x21u, preflight.audioBasic);
     LiveIdentity before;
-    if (!buildIdentity(&before) || !ioIdle() || !heapsHealthy(before) ||
-        !cameraObjectsValid(before, false)) {
+    if (!buildIdentity(&before, true) || !ioIdle(true) ||
+        !gateCheck(heapsHealthy(before), Gate::HeapHealth, before.heap) ||
+        !gateCheck(cameraObjectsValid(before, false), Gate::Cameras,
+                   kCameraObjectPointerTable)) {
         setReject(LMState::Status::Busy, preflight.heap);
         return;
     }
     const u32 totalSize = kHeapDataOffset + before.heapSize;
-    if (totalSize > kSnapshotCapacity) {
+    if (totalSize > LM_STATE_STORAGE_PAYLOAD_MAX - 0x2000u) {
         setReject(LMState::Status::TooLarge, totalSize);
         return;
     }
@@ -3336,8 +3851,11 @@ void saveState() {
     const FreezeState freeze = freezeBegin();
     traceSavePhase(0x43u, before.heap);
     LiveIdentity live;
-    if (!buildIdentity(&live) || !sameIdentity(before, live) || !ioIdle() ||
-        !cameraObjectsValid(live, false)) {
+    if (!buildIdentity(&live, true) ||
+        !gateCheck(sameIdentity(before, live), Gate::IdentityChanged, live.heap) ||
+        !ioIdle(true) ||
+        !gateCheck(cameraObjectsValid(live, false), Gate::Cameras,
+                   kCameraObjectPointerTable)) {
         freezeEnd(freeze);
         setReject(LMState::Status::Busy, live.heap);
         return;
@@ -3346,6 +3864,32 @@ void saveState() {
     captureResourceCensus(&sLiveResourceCensus, live);
     captureModelCensus(sLiveModelCensus);
 
+    if (!grainStateValid(nullptr, live, SUSAMUNE_PHASE_ACTION_SAVE, 0x5Fu) ||
+        !renderTargetsValid(nullptr, live)) {
+        freezeEnd(freeze);
+        setReject(LMState::Status::Busy, sGateValue);
+        return;
+    }
+    // Compress the live parent while GAME and resource consumers are frozen.
+    // Staging is disjoint from the previous state: capacity failure preserves it.
+    LmSharedArchiveDescriptor shared;
+    traceSavePhase(0x5Cu, 0x419B00u);
+    const u32 sharedPacked = stageSharedArchive(totalSize, &shared);
+    if (!sharedPacked) {
+        freezeEnd(freeze);
+        setReject(sCrossRoomFault ? LMState::Status::Busy : LMState::Status::TooLarge,
+                  sCrossRoomFault ? sCrossRoomFaultValue : totalSize);
+        return;
+    }
+    traceSavePhase(0x5Du, sharedPacked);
+    unsigned int profileFault = 0u, profileValue = 0u;
+    clearWords(&sLivePersistentProfile, sizeof(sLivePersistentProfile));
+    if (sPersistentKeyReady && live.mapValue == 2u && live.sceneValue == 2u &&
+        LmAudioIdleValidate(nullptr, grainReadWord, &profileFault, &profileValue)) {
+        LmPersistentCapture(nullptr, grainReadWord, live.rootHeap, live.systemHeap,
+            sPersistentConfigId, sGeneration + 1u, &sLivePersistentProfile,
+            &profileFault, &profileValue);
+    }
     traceSavePhase(0x60u, live.heap);
     SnapshotHeader *header =
         reinterpret_cast<SnapshotHeader *>(kSnapshotBase);
@@ -3427,9 +3971,10 @@ void saveState() {
               reinterpret_cast<void *>(live.heapStart), live.heapSize);
     traceSavePhase(0x64u, totalSize);
     header->checksum = snapshotChecksum(header);
+    const u32 storedSize = commitSharedArchive(header, shared, sharedPacked);
 
-    traceSavePhase(0x65u, totalSize);
-    reinterpret_cast<CacheRangeFn>(kDCStoreRangeAddr)(header, totalSize);
+    traceSavePhase(0x65u, storedSize);
+    reinterpret_cast<CacheRangeFn>(kDCStoreRangeAddr)(header, storedSize);
     asm volatile("sync" ::: "memory");
     header->magic = kSnapshotMagic;
     reinterpret_cast<CacheRangeFn>(kDCStoreRangeAddr)(header, 32u);
@@ -3437,11 +3982,16 @@ void saveState() {
     commitSavedVolumeCensus(header->generation);
     commitSavedResourceCensus(header->generation);
     commitSavedModelCensus(header->generation);
+    copyWords(&sSavedPersistentProfile, &sLivePersistentProfile, sizeof(sSavedPersistentProfile));
+    sPersistentLoaded = false;
     traceSavePhase(0x70u, live.heap);
     freezeEnd(freeze);
 
     sSnapshotSize = totalSize;
+    savedSlotCommitted();
+    ++sTimelineRevision;
     sStatus = LMState::Status::Saved;
+    LMNotice::show(LM_POPUP_SAVED);
     if (sPostLoadTraceState == 3u) {
         // A successful save starts a fresh tail for the next door attempt.
         sPostLoadTraceFrame = kPostLoadTraceFrameLimit;
@@ -3455,12 +4005,15 @@ void saveState() {
         samplePostLoadTransitionWatch(&sPostLoadTransitionWatch);
     }
     traceSavePhase(0x7Fu, totalSize);
+    LMCrash::phase(SUSAMUNE_PHASE_ACTION_SAVE, 0xF9u, profileFault, profileValue);
     LMCrash::note(kEventStateSave, live.heap, live.heapSize);
 }
 
 void loadState() {
     clearRejectTelemetry();
     sCrossRoomGuard = kCrossRoomGuardNone;
+    sCrossRoomFault = 0u;
+    sCrossRoomFaultValue = 0u;
     clearEpochMismatch();
     clearVolumeDiff();
     clearResourceDiff();
@@ -3487,16 +4040,38 @@ void loadState() {
         setReject(LMState::Status::BadCrc, header->checksum);
         return;
     }
+    reinterpret_cast<CacheRangeFn>(kDCInvalidateRangeAddr)(
+        reinterpret_cast<void *>(kSnapshotBase + header->totalSize), 64u);
+    const u32 storedSize = snapshotStoredSize(header);
+    if (storedSize)
+        reinterpret_cast<CacheRangeFn>(kDCInvalidateRangeAddr)(
+            reinterpret_cast<void *>(kSnapshotBase + header->totalSize),
+            storedSize - header->totalSize);
+    if (!snapshotCompanionValid(header, storedSize)) {
+        setReject(LMState::Status::BadCrc, 0x53484152u);
+        return;
+    }
     traceLoadPhase(0x05u, header->checksum);
 
     LiveIdentity preflight;
-    if (sStableFrames < kRequiredStableFrames ||
-        !buildIdentity(&preflight) ||
-        !sameIdentity(preflight, sLastIdentity) || !ioIdle()) {
+    if (!actionIdentity(&preflight)) {
         setReject(LMState::Status::Busy, sStableFrames);
         return;
     }
+    LmSharedArchiveDescriptor sharedBefore;
+    if (!sharedArchiveMatchesSnapshot(header, &sharedBefore)) {
+        rejectDirectEpoch(sCrossRoomFaultValue, header, preflight);
+        return;
+    }
     EpochMismatch mismatch;
+    if (!grainStateValid(header, preflight, SUSAMUNE_PHASE_ACTION_LOAD, 0x07u)) {
+        setReject(LMState::Status::BadHeap, sGateValue);
+        return;
+    }
+    if (!renderTargetsValid(header, preflight)) {
+        setReject(LMState::Status::BadHeap, sGateValue);
+        return;
+    }
     collectPreflightEpochMismatch(&mismatch, header, preflight);
     bool guardedCrossRoom = false;
     if (mismatch.mask != 0u) {
@@ -3560,12 +4135,16 @@ void loadState() {
         rejectDirectEpoch(preflight.heap, header, before);
         return;
     }
+    if (!persistentProfileMatches(header, before)) {
+        rejectDirectEpoch(LM_PERSISTENT_MAGIC, header, before);
+        return;
+    }
 
     traceLoadPhase(0x40u, before.heap);
     const FreezeState freeze = freezeBegin();
     traceLoadPhase(0x43u, before.heap);
     LiveIdentity live;
-    const bool liveBuilt = buildIdentity(&live);
+    const bool liveBuilt = buildIdentity(&live, true);
     if (liveBuilt) {
         collectPreflightEpochMismatch(&mismatch, header, live);
     }
@@ -3574,15 +4153,28 @@ void loadState() {
         (guardedCrossRoom
              ? guardedCrossRoomRestoreAllowed(header, live, mismatch)
              : mismatch.mask == 0u);
-    if (!liveBuilt || !sameIdentity(before, live) || !ioIdle() ||
-        !liveEpochAllowed ||
-        !headerMatchesLive(header, live, guardedCrossRoom) ||
-        !cameraObjectsValid(live, true)) {
+    LmSharedArchiveDescriptor sharedLive;
+    const bool sharedAllowed = sharedArchiveMatchesSnapshot(header, &sharedLive) &&
+        sharedDescriptorsEqual(sharedBefore, sharedLive);
+    if (!liveBuilt ||
+        !gateCheck(sameIdentity(before, live), Gate::IdentityChanged, live.heap) ||
+        !ioIdle(true) ||
+        !gateCheck(liveEpochAllowed && headerMatchesLive(header, live, guardedCrossRoom),
+                   Gate::RestoreProof, live.heap) ||
+        !gateCheck(sharedAllowed, Gate::RestoreProof, sCrossRoomFaultValue) ||
+        !renderTargetsValid(nullptr, live) ||
+        !gateCheck(persistentProfileMatches(header, live), Gate::RestoreProof,
+                   LM_PERSISTENT_MAGIC) ||
+        !gateCheck(cameraObjectsValid(live, true), Gate::Cameras,
+                   kCameraObjectPointerTable)) {
         freezeEnd(freeze);
         setReject(LMState::Status::Busy, live.heap);
         return;
     }
 
+    traceLoadPhase(0x5Cu, sharedLive.size);
+    if (!restoreSharedArchive(header, sharedLive)) __builtin_trap();
+    traceLoadPhase(0x5Du, sharedLive.size);
     traceLoadPhase(0x60u, live.heapSize);
     copyWords(reinterpret_cast<void *>(live.heapStart),
               reinterpret_cast<void *>(kSnapshotBase + kHeapDataOffset),
@@ -3630,35 +4222,44 @@ void loadState() {
     asm volatile("sync" ::: "memory");
     traceLoadPhase(0x6Au, kGXInvalidateTexAllAddr);
 
+    // Source validation already ran before any writes. A failure NOW cannot
+    // be returned as a harmless refusal: GAME has already been overwritten.
+    // Leave the exact fault in the critical journal and enter the installed
+    // program-exception dumper without resuming a known-corrupt renderer.
+    // Do not repair lists or free objects from either side of the rewind.
+    if (!grainStateValid(nullptr, live, SUSAMUNE_PHASE_ACTION_LOAD, 0x6Bu)) {
+        __builtin_trap();
+    }
+
     traceLoadPhase(0x70u, live.heap);
     freezeEnd(freeze, true);
     traceLoadPhase(0x74u, live.heap);
 
-    HeapCheckFn check = reinterpret_cast<HeapCheckFn>(kExpHeapCheckAddr);
     traceLoadPhase(0x75u, live.rootHeap);
-    bool healthyAfter = isExpHeap(live.rootHeap) &&
-                        check(reinterpret_cast<void *>(live.rootHeap));
+    bool healthyAfter = LMState::heapHealthy(live.rootHeap);
     traceLoadPhase(0x76u, healthyAfter ? 1u : 0u);
     if (healthyAfter) {
         traceLoadPhase(0x77u, live.systemHeap);
-        healthyAfter = isExpHeap(live.systemHeap) &&
-                       check(reinterpret_cast<void *>(live.systemHeap));
+        healthyAfter = LMState::heapHealthy(live.systemHeap);
         traceLoadPhase(0x78u, healthyAfter ? 1u : 0u);
     }
     if (healthyAfter) {
         traceLoadPhase(0x79u, live.heap);
-        healthyAfter = isExpHeap(live.heap) &&
-                       check(reinterpret_cast<void *>(live.heap));
+        healthyAfter = LMState::heapHealthy(live.heap);
         traceLoadPhase(0x7Au, healthyAfter ? 1u : 0u);
     }
 
     sSnapshotSize = header->totalSize;
     sStableFrames = 0u;
     if (!healthyAfter) {
-        setReject(LMState::Status::BadHeap, live.heap);
-        return;
+        __builtin_trap();
     }
+    LMRumble::afterLoad(live.heapStart, live.heapEnd, live.systemHeap,
+                       live.systemHeapStart, live.systemHeapEnd);
+    ++sTimelineRevision;
+    ++sLoadRevision;
     sStatus = LMState::Status::Loaded;
+    LMNotice::show(LM_POPUP_LOADED);
     sPostLoadTraceFrame = 0u;
     sPostLoadTraceBurst = false;
     sPostLoadTracePresentationBurst = false;
@@ -3669,6 +4270,8 @@ void loadState() {
     traceLoadPhase(0x7Fu, header->totalSize);
     LMCrash::note(kEventStateLoad, live.heap, live.heapSize);
 }
+
+#include "lm_state_storage.inc"
 
 void updateStability() {
     LiveIdentity live;
@@ -3731,7 +4334,24 @@ const char *volumeOwnerText(u32 owner) {
 
 namespace LMState {
 
+bool heapHealthy(u32 heap) {
+    unsigned int fault = 0u, value = 0u;
+    const bool interrupts = reinterpret_cast<DisableInterruptsFn>(kOSDisableInterruptsAddr)();
+    const bool valid = LmExpHeapValidate(nullptr, grainReadWord, heap, &fault, &value) != 0;
+    reinterpret_cast<RestoreInterruptsFn>(kOSRestoreInterruptsAddr)(interrupts);
+    if (!valid) {
+        LMCrash::note(kEventStateLoadPhase, 0xF0u, fault);
+        LMCrash::note(kEventStateLoadPhase, 0xF1u, value);
+        LMCrash::note(kEventStateLoadPhase, 0xF2u, heap);
+        LMCrash::phase(SUSAMUNE_PHASE_ACTION_POST_LOAD, 0xF4u, fault, value);
+    }
+    return valid;
+}
+
 void postLoadMilestone(u32 phase) {
+    if (phase == 0x8Bu && (sPostLoadTraceState == 1u || sPostLoadTraceState == 2u) &&
+        readWord(kMainLoopModeGlobal) == 2u && readWord(kMainLoopExitGlobal) == 0u &&
+        !heapHealthy(readWord(kGameHeapGlobal))) __builtin_trap();
     if (sRejectTelemetryCount != 0u) {
         return;
     }
@@ -3894,6 +4514,9 @@ void presenterAfterSample() {
 }
 
 void presenterAfterDrawDone() {
+    if ((sPostLoadTraceState == 1u || sPostLoadTraceState == 2u) &&
+        readWord(kMainLoopModeGlobal) == 2u && readWord(kMainLoopExitGlobal) == 0u &&
+        !heapHealthy(readWord(kGameHeapGlobal))) __builtin_trap();
     if (sPostLoadTraceState == 2u ||
         (sPostLoadTraceState == 3u &&
          sPostLoadTracePresentationBurst)) {
@@ -3932,22 +4555,49 @@ void presenterAfterTick() {
     }
 }
 
+void samplePad(const PADStatus &pad, bool available) {
+    const bool edge = available &&
+        (LmStateDirectionEdge(pad.mButton, sHotkeys.previous, 1u, pad.mCurError == 0u) ||
+         LmStateDirectionEdge(pad.mButton, sHotkeys.previous, 2u, pad.mCurError == 0u));
+    LmStateSampleHotkeys(&sHotkeys, pad.mButton, pad.mCurError == 0u, available);
+    if (LmStatusPopupGameplayEvent(LMPractice::isOpen(), edge))
+        LMNotice::show(storageInFlight() || sMenuRequest ? LM_POPUP_BUSY :
+        sHotkeys.pending == 1u ? LM_POPUP_SAVING : LM_POPUP_LOADING);
+}
+
+u32 hotkeyDebug(u32 field) {
+    switch (field) {
+    case 0u: return sHotkeys.lastButtons;
+    case 1u: return sHotkeys.lastConnected;
+    case 2u: return sHotkeys.lastLatched;
+    case 3u: return sHotkeys.lastDisposition;
+    default: return 0u;
+    }
+}
+
 void tick(bool allowRequests) {
     initializeSlot();
+    if (!sSlotInitialized) return;
+    serviceStorage();
     updateStability();
     serviceRejectTelemetry();
-    const u16 buttons = readHalf(kPadStatusGlobal);
-    const bool leftEdge = buttons == kDPadLeft && sPreviousButtons != kDPadLeft;
-    const bool rightEdge =
-        buttons == kDPadRight && sPreviousButtons != kDPadRight;
-    sPreviousButtons = buttons;
+    const u32 pendingHotkey = sHotkeys.pending;
+    const u32 hotkey = LmStateConsumeHotkey(&sHotkeys, allowRequests && !storageInFlight());
+    if (LmStatusPopupGameplayEvent(LMPractice::isOpen(), pendingHotkey && !hotkey))
+        LMNotice::show(LM_POPUP_BUSY);
 
-    if (!allowRequests) {
+    if (storageInFlight()) {
         return;
     }
-    if (leftEdge) {
+    const u32 request = sMenuRequest;
+    sMenuRequest = 0u;
+    if (request == 1u || hotkey == 1u) {
+        LMNotice::show(LM_POPUP_SAVING);
+        LMNotice::present();
         saveState();
-    } else if (rightEdge) {
+    } else if (request == 2u || hotkey == 2u) {
+        LMNotice::show(LM_POPUP_LOADING);
+        LMNotice::present();
         loadState();
     }
 }
@@ -3987,11 +4637,80 @@ u32 stableFrames() {
 }
 
 bool readyForAction() {
-    return sGate == Gate::Ready && sStableFrames >= kRequiredStableFrames;
+    return !storageInFlight() && sMenuRequest == 0u &&
+        sGate == Gate::Ready && sStableFrames >= kRequiredStableFrames;
 }
 
+bool readyForActionNow() {
+    if (!readyForAction()) return false;
+    LiveIdentity live;
+    return actionIdentity(&live);
+}
+
+bool requestSave() {
+    if (storageInFlight() || sMenuRequest) { LMNotice::show(LM_POPUP_BUSY); return false; }
+    LMNotice::show(LM_POPUP_SAVING);
+    sMenuRequest = 1u; return true;
+}
+bool requestLoad() {
+    if (storageInFlight() || sMenuRequest) { LMNotice::show(LM_POPUP_BUSY); return false; }
+    LMNotice::show(LM_POPUP_LOADING);
+    sMenuRequest = 2u; return true;
+}
+u32 slotCount() { return kResidentSlots; }
+u32 selectedSlot() { return sSelectedSlot; }
+bool selectSlot(u32 slot) { return switchSlot(slot); }
+bool clearSelectedSlot() {
+    if (storageInFlight() || sMenuRequest) return false;
+    sSlots[sSelectedSlot].rawSize = 0u;
+    sPersistentLoaded = false;
+    clearWords(&sSavedPersistentProfile, sizeof(sSavedPersistentProfile));
+    writeWord(kSnapshotBase, 0u);
+    flushRawSlot(32u);
+    sSnapshotSize = 0u;
+    sStatus = Status::Empty;
+    clearSlotDiagnostics();
+    sStorageText = "SLOT CLEARED";
+    return true;
+}
+bool slotHasState(u32 slot) { return slot < kResidentSlots && sSlots[slot].rawSize != 0u; }
+u32 slotKiB(u32 slot) { return slot < kResidentSlots ? sSlots[slot].rawSize >> 10 : 0u; }
+bool requestExport(const char *name) {
+    return beginStorage(LM_STATE_STORAGE_EXPORT,
+        sArchiveId < LM_STATE_STORAGE_MAX_ID ? sArchiveId + 1u : 1u, name);
+}
+bool requestImport(u32 archiveId) { return beginStorage(LM_STATE_STORAGE_IMPORT, archiveId); }
+bool requestRename(u32 archiveId, const char *name) {
+    return beginStorage(LM_STATE_STORAGE_RENAME, archiveId, name);
+}
+u32 catalogDeleteToken(u32 index) { return deleteToken(index); }
+bool requestDelete(u32 archiveId, u32 token) {
+    return beginStorage(LM_STATE_STORAGE_DELETE, archiveId, nullptr, token);
+}
+bool requestCatalog(u32 afterId) { return beginStorage(LM_STATE_STORAGE_CATALOG, afterId); }
+bool catalogBusy() { return sStorageCommand == LM_STATE_STORAGE_CATALOG; }
+u32 catalogCount() { return sCatalogCount; }
+u32 catalogCursor() { return sCatalogCursor; }
+u32 catalogNextCursor() { return sCatalogNext; }
+bool catalogHasMore() { return sCatalogMore; }
+u32 catalogId(u32 index) { return index < sCatalogCount ? sCatalog[index].id : 0u; }
+u32 catalogBytes(u32 index) { return index < sCatalogCount ? sCatalog[index].bytes : 0u; }
+bool catalogCompatible(u32 index) { return catalogEntryCompatible(index); }
+const char *catalogEntryText(u32 index) { return catalogEntryStatus(index); }
+const char *catalogName(u32 index) { return index < sCatalogCount ? sCatalog[index].name : ""; }
+const char *catalogText() { return sCatalogText; }
+bool storageBusy() { return storageInFlight(); }
+const char *storageText() { return sStorageText; }
+u32 packedNeededKiB() { return (sPackedNeeded + 1023u) >> 10; }
+u32 packedCacheFreeKiB() { return (sSlotCacheSize - sCacheUsed) >> 10; }
+u32 packStagingKiB() { return (sStaging[0].size + sStaging[1].size) >> 10; }
+u32 lastArchiveId() { return sArchiveId; }
+u32 timelineRevision() { return sTimelineRevision; }
+u32 loadRevision() { return sLoadRevision; }
+
 const char *gateText() {
-    switch (sGate) {
+    // BUSY keeps the failed action's reason instead of next frame's idle gate.
+    switch (sStatus == Status::Busy ? sRejectedGate : sGate) {
     case Gate::Ready:
         return "OK";
     case Gate::Boot:
@@ -4026,6 +4745,12 @@ const char *gateText() {
         return "GROOT";
     case Gate::Particle:
         return "PTCL";
+    case Gate::Grain:
+        return "GRAIN";
+    case Gate::DoorOwner:
+        return "DPLAYER";
+    case Gate::Door:
+        return "DOOR";
     case Gate::RoomName:
         return "RNAME";
     case Gate::Scene:
@@ -4056,12 +4781,22 @@ const char *gateText() {
         return "CARD1";
     case Gate::Audio:
         return "AUDIO";
+    case Gate::Stability:
+        return "STABLE";
+    case Gate::IdentityChanged:
+        return "CHANGE";
+    case Gate::Cameras:
+        return "CAMERA";
+    case Gate::HeapHealth:
+        return "HEALTH";
+    case Gate::RestoreProof:
+        return "PROOF";
     }
     return "?";
 }
 
 u32 gateValue() {
-    return sGateValue;
+    return sStatus == Status::Busy ? sRejectedGateValue : sGateValue;
 }
 
 u32 crossRoomGuardCode() {
